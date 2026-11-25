@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARCore 기능 확인</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --line:rgba(255,255,255,.14); --text:#f2f4f7; --muted:#a8b0bb; --ok:#3ddc84; --no:#ff6b5e; --maybe:#ffc400; --accent:#38d9ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui, -apple-system, "Noto Sans KR", sans-serif; line-height:1.5; }
+  main { max-width:640px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  p { color:var(--muted); margin:0 0 14px; font-size:14px; }
+  table { width:100%; border-collapse:collapse; background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:16px; }
+  td { padding:9px 12px; border-top:1px solid var(--line); font-size:14px; vertical-align:top; }
+  tr:first-child td { border-top:0; }
+  td:first-child { width:46%; color:var(--muted); }
+  .ok { color:var(--ok); font-weight:700; } .no { color:var(--no); font-weight:700; } .maybe { color:var(--maybe); font-weight:700; }
+  button { font-size:17px; font-weight:700; padding:14px 18px; border-radius:12px; border:0; background:var(--accent); color:#002833; width:100%; margin-bottom:10px; cursor:pointer; }
+  button.secondary { background:#1f2630; color:var(--text); border:1px solid var(--line); }
+  button:disabled { opacity:.45; }
+  #overlay { position:fixed; inset:0; display:none; flex-direction:column; justify-content:flex-end; padding:16px; gap:10px; }
+  #overlay .box { background:rgba(13,17,23,.82); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:14px; }
+  #summary { white-space:pre-wrap; font:12px/1.45 ui-monospace, Menlo, monospace; background:#010409; border:1px solid var(--line); border-radius:10px; padding:10px; color:#d6e2f0; user-select:text; -webkit-user-select:text; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ARCore 기능 확인</h1>
+  <p>AR 버전에 필요한 기능을 이 기기가 지원하는지 확인해요. <b>AR 세션 시험</b>을 누르고 카메라로 책상이나 바닥을 3~5초 비춘 뒤 <b>끝내기</b>를 누르세요. 마지막에 나오는 결과를 복사해 보내 주세요.</p>
+  <table id="basic"></table>
+  <button id="btnTry" disabled>AR 세션 시험</button>
+  <table id="session"></table>
+  <button id="btnCopy" class="secondary">결과 복사</button>
+  <div id="summary"></div>
+</main>
+
+<div id="overlay">
+  <div class="box" id="live">AR 시작 중…</div>
+  <button id="btnEnd">끝내기</button>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const results = {};
+  const rows = { basic: [], session: [] };
+  function set(table, key, label, state, detail) {
+    results[key] = { state, detail };
+    const list = rows[table];
+    const i = list.findIndex((r) => r.key === key);
+    const row = { key, label, state, detail };
+    if (i >= 0) list[i] = row; else list.push(row);
+    const mark = { ok: '<span class="ok">지원</span>', no: '<span class="no">안 됨</span>', maybe: '<span class="maybe">확인 중</span>' };
+    $(table).innerHTML = list.map((r) => `<tr><td>${r.label}</td><td>${mark[r.state] || ''}${r.detail ? ' · ' + escapeHtml(r.detail) : ''}</td></tr>`).join('');
+    summarize();
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function summarize() {
+    const lines = [`기기: ${navigator.userAgent}`];
+    for (const t of ['basic', 'session']) for (const r of rows[t]) lines.push(`${r.label}: ${r.state === 'ok' ? '지원' : r.state === 'no' ? '안 됨' : '확인 중'}${r.detail ? ' · ' + r.detail : ''}`);
+    $('summary').textContent = lines.join('\n');
+  }
+
+  // ---------- 1. 기본 확인 ----------
+  async function basic() {
+    const chrome = (navigator.userAgent.match(/Chrome\/(\d+)/) || [])[1];
+    set('basic', 'secure', 'HTTPS(보안 연결)', window.isSecureContext ? 'ok' : 'no', window.isSecureContext ? '' : 'https 주소로 열어야 해요');
+    set('basic', 'chrome', 'Chrome 버전', chrome ? (+chrome >= 113 ? 'ok' : 'maybe') : 'maybe', chrome ? chrome : '크롬이 아닌 것 같아요');
+    if (!navigator.xr) { set('basic', 'xr', 'WebXR', 'no', '이 브라우저는 WebXR이 없어요 (안드로이드 Chrome 필요)'); return; }
+    set('basic', 'xr', 'WebXR', 'ok', '');
+    let ar = false;
+    try { ar = await navigator.xr.isSessionSupported('immersive-ar'); } catch (e) { /* 아래에서 표시 */ }
+    set('basic', 'ar', 'AR 세션(ARCore)', ar ? 'ok' : 'no', ar ? '' : 'ARCore 미지원 기기이거나 "AR용 Google Play 서비스"가 없어요');
+    $('btnTry').disabled = !ar;
+  }
+
+  // ---------- 2. AR 세션 시험 ----------
+  let session = null, gl = null, binding = null, refSpace = null;
+  const live = { frames: 0, cam: null, depth: null, depthValid: 0, hit: 0, camErr: '', depthErr: '' };
+
+  async function tryAR() {
+    const canvas = document.createElement('canvas');
+    gl = canvas.getContext('webgl2', { xrCompatible: true, alpha: true }) || canvas.getContext('webgl', { xrCompatible: true, alpha: true });
+    const opts = {
+      requiredFeatures: [],
+      optionalFeatures: ['local', 'camera-access', 'depth-sensing', 'hit-test', 'dom-overlay', 'anchors', 'plane-detection'],
+      domOverlay: { root: $('overlay') },
+      depthSensing: { usagePreference: ['gpu-optimized', 'cpu-optimized'], dataFormatPreference: ['luminance-alpha', 'float32', 'unsigned-short'] },
+    };
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', opts);
+    } catch (e) {
+      set('session', 'start', 'AR 세션 시작', 'no', e.message || String(e));
+      return;
+    }
+    $('overlay').style.display = 'flex';
+    set('session', 'start', 'AR 세션 시작', 'ok', '');
+    const f = session.enabledFeatures || [];
+    const has = (k) => f.includes(k);
+    set('session', 'features', '켜진 기능 목록', f.length ? 'ok' : 'maybe', f.join(', ') || '브라우저가 목록을 알려 주지 않아요');
+    set('session', 'camera', '카메라 영상 접근 (마커·바리케이드 인식에 필요)', has('camera-access') ? 'maybe' : 'no', has('camera-access') ? '영상 받는 중…' : '');
+    set('session', 'depth', '깊이 (건물 가림에 필요)', has('depth-sensing') ? 'maybe' : 'no',
+      has('depth-sensing') ? `${session.depthUsage || '?'} / ${session.depthDataFormat || '?'} · 깊이 받는 중…` : '');
+    set('session', 'hit', '바닥 인식 (도로 높이 자동 측정에 필요)', has('hit-test') ? 'maybe' : 'no', '');
+    set('session', 'overlay', '화면 위 버튼 (dom-overlay)', has('dom-overlay') ? 'ok' : 'no', '');
+    set('session', 'anchors', '앵커', has('anchors') ? 'ok' : 'no', '');
+
+    await gl.makeXRCompatible();
+    session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+    if (has('camera-access') || (has('depth-sensing') && session.depthUsage === 'gpu-optimized')) {
+      try { binding = new XRWebGLBinding(session, gl); } catch (e) { live.camErr = 'XRWebGLBinding: ' + e.message; }
+    }
+    refSpace = await session.requestReferenceSpace('local');
+    if (has('hit-test')) {
+      try {
+        const viewer = await session.requestReferenceSpace('viewer');
+        live.hitSource = await session.requestHitTestSource({ space: viewer });
+      } catch (e) { set('session', 'hit', '바닥 인식 (도로 높이 자동 측정에 필요)', 'no', e.message); }
+    }
+    session.addEventListener('end', finish);
+    session.requestAnimationFrame(onFrame);
+  }
+
+  function onFrame(t, frame) {
+    if (!session) return;
+    session.requestAnimationFrame(onFrame);
+    const layer = session.renderState.baseLayer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    const pose = frame.getViewerPose(refSpace);
+    live.frames++;
+    if (pose) {
+      const view = pose.views[0];
+      const f = session.enabledFeatures || [];
+      if (f.includes('camera-access') && binding && view.camera && !live.cam) {
+        try {
+          const tex = binding.getCameraImage(view.camera);
+          if (tex) live.cam = `${view.camera.width}x${view.camera.height}`;
+        } catch (e) { live.camErr = e.message; }
+      }
+      if (f.includes('depth-sensing')) {
+        try {
+          const d = session.depthUsage === 'cpu-optimized' ? frame.getDepthInformation(view)
+            : binding ? binding.getDepthInformation(view) : null;
+          if (d && (d.isValid === undefined || d.isValid)) { live.depthValid++; live.depth = `${d.width}x${d.height}`; }
+        } catch (e) { live.depthErr = e.message; }
+      }
+      if (live.hitSource) {
+        const hits = frame.getHitTestResults(live.hitSource);
+        if (hits.length) live.hit++;
+      }
+    }
+    $('live').textContent = `프레임 ${live.frames} · 카메라 영상 ${live.cam || (live.camErr ? '오류' : '-')} · 깊이 ${live.depth || (live.depthErr ? '오류' : '-')} · 바닥 인식 ${live.hit}회`
+      + '\n책상이나 바닥을 천천히 비춰 주세요.';
+  }
+
+  function finish() {
+    const f = (session && session.enabledFeatures) || [];
+    if (f.includes('camera-access')) set('session', 'camera', '카메라 영상 접근 (마커·바리케이드 인식에 필요)', live.cam ? 'ok' : 'no', live.cam ? `영상 ${live.cam}` : (live.camErr || '영상이 오지 않았어요'));
+    if (f.includes('depth-sensing')) set('session', 'depth', '깊이 (건물 가림에 필요)', live.depth ? 'ok' : 'no',
+      `${session.depthUsage || '?'} / ${session.depthDataFormat || '?'}` + (live.depth ? ` · ${live.depth}, 유효 ${live.depthValid}/${live.frames}프레임` : ' · ' + (live.depthErr || '깊이가 오지 않았어요')));
+    if (f.includes('hit-test')) set('session', 'hit', '바닥 인식 (도로 높이 자동 측정에 필요)', live.hit ? 'ok' : 'maybe', `${live.hit}/${live.frames}프레임에서 바닥 찾음`);
+    set('session', 'frames', '시험한 프레임', live.frames ? 'ok' : 'no', String(live.frames));
+    $('overlay').style.display = 'none';
+    session = null;
+  }
+
+  $('btnTry').onclick = () => { $('btnTry').disabled = true; tryAR().finally(() => { $('btnTry').disabled = false; }); };
+  $('btnEnd').onclick = () => { if (session) session.end(); };
+  $('btnCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText($('summary').textContent); $('btnCopy').textContent = '복사했어요'; }
+    catch (e) { $('btnCopy').textContent = '복사 실패 · 아래 글을 길게 눌러 복사하세요'; }
+  };
+  basic();
+})();
+</script>
+</body>
+</html>
