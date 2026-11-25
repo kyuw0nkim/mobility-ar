@@ -10,8 +10,8 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
 | `index.html` | 앱 전체 (단일 파일, 외부 인터넷 필요 없음) |
 | `ar.html` | **AR(ARCore) 버전** — 갤럭시 등 안드로이드 Chrome 전용. 마커 버전 시작 화면에도 "AR 버전으로 시작" 버튼이 떠요 |
 | `xr-check.html` | ARCore(WebXR) 버전에 필요한 기능을 기기가 지원하는지 확인하는 페이지 |
-| `RAIM-AR-마커-10cm.pdf` | 디오라마용 도로 마커 14개: 0~9, 12~15번(10cm, 한 장에 1개) + 바리케이드 마커 10·11(3cm), 15쪽 |
-| `RAIM-AR-마커-10cm-추가.pdf` | 0~5번을 이미 인쇄한 경우 추가분: 6~9, 12~15번 (8쪽) |
+| `RAIM-AR-마커-10cm.pdf` | 디오라마용 도로 마커 18개: 0~9, 12~19번(10cm, 한 장에 1개) + 바리케이드 마커 10·11(3cm), 19쪽 |
+| `RAIM-AR-마커-10cm-추가-16-19.pdf` | 0~9, 12~15번(14개)을 이미 인쇄한 경우 추가분: 16~19번 (4쪽) |
 | `RAIM-AR-테스트시트.pdf` | 1쪽: A4 도로 시트(도로 마커 0~5), 2쪽: 미니 바리케이드 접이식 도안(마커 10·11) |
 | `raim-ar-marker-src.zip` | 소스 코드, 빌드·시험 스크립트 |
 
@@ -37,7 +37,7 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
 
 ## 3. 디오라마에 적용하기 (줄자 필요 없음)
 
-1. **마커 붙이기:** `RAIM-AR-마커-10cm.pdf`의 도로 마커(0~9, 12~15번)를 디오라마 테두리에 붙여요. 세로 변에 4개씩, 가로 변에 3개씩이 기준이에요.
+1. **마커 붙이기:** `RAIM-AR-마커-10cm.pdf`의 도로 마커(0~9, 12~19번)를 디오라마 테두리에 붙여요. **가로 변에 4개씩, 세로 변에 5개씩(모두 18개)**이 기준이에요.
    10·11번은 바리케이드 전용이라 도로에 붙이면 안 돼요.
    위치·방향은 자유예요. 다만 **이웃한 마커 두 개가 태블릿 화면에 함께 들어올 만한 간격**(대략 40~60cm)으로,
    **도로면과 같은 높이에 평평하게** 붙여요. 흰 테두리는 자르지 말고 남겨 두세요.
@@ -124,6 +124,8 @@ AR 세션, 카메라 영상 접근(마커·바리케이드 인식), 깊이(건�
 npm install
 node build.mjs                 # dist/index.html 생성
 node tools/make-sheet.mjs      # 테스트 시트 SVG 생성 (rsvg-convert로 PDF 변환)
+node tools/make-markers.mjs out && node tools/svg-to-pdf.cjs out 마커.pdf          # 도로 마커 18개 + 바리케이드 마커 PDF
+node tools/make-markers.mjs out2 16,17,18,19 bar=0 && node tools/svg-to-pdf.cjs out2 추가.pdf   # 일부 번호만
 node test/pipeline.mjs         # 합성 영상으로 자세·바리케이드 정확도 시험
 node test/logic.mjs            # 정지 판단·추적 로직 시험
 node test/mapping.mjs          # 2m 가상 디오라마로 마커 지도 정확도 시험
