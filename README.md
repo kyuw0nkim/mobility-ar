@@ -115,6 +115,12 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
    경로를 막으면 판단 카드에 "경로 위 · 앞 n cm", 제어 카드가 감속 → 정지로 바뀌어요. 화면에는 바리케이드 자리에 상자가 보여요(노랑: 경로 밖, 빨강: 경로를 막음).
    - 치우면, 그 자리가 화면에 보이는 상태로 2초가 지나면 해제되고 다시 출발해요. 화면 밖에 있으면 "기억 중"으로 유지해요. 바로 해제하려면 **바리케이드 해제**.
    - 바리케이드 마커는 3cm라 대략 **60~80cm 안**에서 인식돼요. 더 멀리서 보려면 마커를 크게 인쇄하고 설정의 `barricade.markerSize`를 그 크기(cm)로 바꿔요.
+   - **마커 없이도 돼요(색 인식):** 마커가 안 보이면 **노랑·검정 줄무늬**로 찾아요(인식 카드에 "보임(색)"). 노란 조각이 2개 이상 모인 덩어리만 바리케이드로 보니,
+     노란 블록 하나 정도로는 헷갈리지 않아요. 어느 방향에서 봐도 되고 마커보다 멀리서도 잡혀요.
+     - 설정의 `barricade.height`를 바리케이드 실제 높이(cm)로 맞춰 주세요. 노란 패널 가운데 높이를 그 0.65배로 보고 위치를 계산해요
+       (다르면 `barricade.colorHeight`에 패널 가운데 높이를 직접 적어요). `barricade.width`도 실제 폭으로.
+     - 경로 근처에 노랑·검정 줄무늬 물건이 있으면 바리케이드로 볼 수 있어요. 끄려면 `barricade.color`를 `false`로.
+     - 실제 바리케이드 사진 3장(가까이·체크무늬형·멀리)에서 바리케이드만 정확히 찾고, 주변의 노란 점(꽃·건물·차)은 무시했어요.
 
 아직 없는 것(다음 단계): 건물 가림(3단계), 태블릿 간 바리케이드 공유. 마커 지도 만들기는 마커 버전에서 해요.
 
@@ -123,7 +129,7 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
 - 가짜 ARCore(WebXR 흉내)로 실제 빌드 시험: 카메라 영상 읽기 → 마커 인식 → 위치 맞춤 → 탭으로 경로 기록 → 주행까지 동작,
   카메라 영상 위아래 방향을 자동으로 찾음(정방향 1.5초, 뒤집힌 경우 2.3초)
 - 가짜 ARCore 바리케이드 장면(2단계): 등장 0.4초 뒤 인식, 위치 오차 0.9cm·폭 방향 오차 1°, 바리케이드 앞 간격 0cm에서 정지,
-  치운 뒤 2.3초에 재출발
+  치운 뒤 2.3초에 재출발. 색으로만 찾기(마커 무시): 0.3초 뒤 인식, 위치 오차 0.7cm·폭 방향 오차 11°, 정지·재출발 같음
 
 ## 6. ARCore 버전에서 할 일 (다음 단계)
 
@@ -157,7 +163,8 @@ node test/e2e-height.mjs       # 도로 높이: 표시층 높이, 높인 면 기
 node test/xr-align.mjs         # AR 버전 위치 맞춤 시뮬레이션
 node test/e2e-shared.mjs       # 전시 설정 공유 (dist/를 8765 포트로 띄운 뒤)
 node test/xr-mock/make-frames.mjs && cp -r test/xr-mock dist/ && node test/e2e-ar.mjs   # 가짜 ARCore로 AR 버전 시험
-node test/xr-mock/make-frames.mjs bar && cp -r test/xr-mock dist/ && node test/e2e-ar-barricade.mjs   # 바리케이드(2단계)
+node test/xr-mock/make-frames.mjs bar && cp -r test/xr-mock dist/ && node test/e2e-ar-barricade.mjs   # 바리케이드(2단계), COLOR=1이면 색으로만
+node test/color-photos.mjs <출력폴더> <폭> <높이> 사진.rgba...   # 실제 사진에서 노란 줄무늬 덩어리 찾기
 node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 기록 → 차선 맞추기 → 주행 (dist/를 8765 포트로 띄운 뒤)
 ```
 
@@ -171,6 +178,7 @@ node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 �
 | `src/app.js` | 마커 버전: 카메라, 3D 렌더링(Three.js), 인식–판단–제어 화면, 경로 기록, 설정 |
 | `src/ar-app.js` | AR 버전: WebXR 세션, 마커로 위치 맞춤, 주행, 경로 기록, 높이 자동 측정 |
 | `src/xr-align.js` | AR 버전 좌표 계산: ARCore 세계 ↔ 도로, 수평 디오라마 위치 추정·융합 |
+| `src/barricade-color.js` | 마커 없이 노랑·검정 줄무늬로 바리케이드 찾기 |
 | `src/xr-camera.js` | AR 세션 카메라 영상을 줄여 읽기 (영상 위아래 방향 자동 판단) |
 | `src/store.js`, `src/scene.js` | 두 버전이 함께 쓰는 설정 저장, 자동차 3D 모델 |
 | `src/config.js` | 기본 설정 (A4 테스트 시트 기준) |
