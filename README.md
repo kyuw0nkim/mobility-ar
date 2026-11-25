@@ -121,6 +121,9 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
        (다르면 `barricade.colorHeight`에 패널 가운데 높이를 직접 적어요). `barricade.width`도 실제 폭으로.
      - 경로 근처에 노랑·검정 줄무늬 물건이 있으면 바리케이드로 볼 수 있어요. 끄려면 `barricade.color`를 `false`로.
      - 실제 바리케이드 사진 3장(가까이·체크무늬형·멀리)에서 바리케이드만 정확히 찾고, 주변의 노란 점(꽃·건물·차)은 무시했어요.
+       전시실 전체 사진 2장(노란 의자, 무지개색 태블릿 케이스)에서는 아무것도 바리케이드로 잡지 않았어요.
+     - 크기 확인: 그 자리에 바리케이드 패널이 있다면 화면에서 보여야 할 크기와 노란 조각 크기를 비교해, 테이블 너머의 노란 의자처럼
+       훨씬 큰 물체는 걸러요. 패널 세로 길이는 `height × 0.35`로 보고, 다르면 `barricade.colorPanelHeight`(cm)에 적어요.
 
 아직 없는 것(다음 단계): 건물 가림(3단계), 태블릿 간 바리케이드 공유. 마커 지도 만들기는 마커 버전에서 해요.
 
@@ -165,6 +168,7 @@ node test/e2e-shared.mjs       # 전시 설정 공유 (dist/를 8765 포트로 �
 node test/xr-mock/make-frames.mjs && cp -r test/xr-mock dist/ && node test/e2e-ar.mjs   # 가짜 ARCore로 AR 버전 시험
 node test/xr-mock/make-frames.mjs bar && cp -r test/xr-mock dist/ && node test/e2e-ar-barricade.mjs   # 바리케이드(2단계), COLOR=1이면 색으로만
 node test/color-photos.mjs <출력폴더> <폭> <높이> 사진.rgba...   # 실제 사진에서 노란 줄무늬 덩어리 찾기
+node test/color-size.mjs       # 크기 확인: 디오라마 안으로 투영되는 먼 노란 의자 거르기
 node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 기록 → 차선 맞추기 → 주행 (dist/를 8765 포트로 띄운 뒤)
 ```
 
