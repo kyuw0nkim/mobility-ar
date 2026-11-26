@@ -1,0 +1,8 @@
+# 설치·빌드 결과 (npm install, node build.mjs)
+node_modules/
+dist/
+# 시험이 만드는 큰 파일·스크린샷 (make-video.mjs, xr-mock/make-frames*.mjs, e2e-*.mjs)
+test/*.y4m
+test/*.png
+test/xr-mock/*.bin
+test/xr-mock/meta*.json

@@ -1,0 +1,22 @@
+{
+  "name": "raim-ar",
+  "version": "1.0.0",
+  "description": "RAIM AR 자율주행: 마커 버전(index.html)·AR(ARCore) 버전(ar.html) 소스",
+  "scripts": {
+    "build": "node build.mjs",
+    "publish-site": "node build.mjs --publish",
+    "test": "node tools/make-sheet.mjs && node test/logic.mjs && node test/mapping.mjs && node test/lane.mjs && node test/lane-trace.mjs && node test/path-jitter.mjs && node test/pose-compare.mjs && node test/xr-align.mjs && node test/xr-mapper-sim.mjs && node test/pipeline.mjs && node test/color-size.mjs"
+  },
+  "license": "ISC",
+  "dependencies": {
+    "js-aruco2": "^2.0.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^23.11.1"
+  },
+  "type": "module",
+  "private": true
+}
