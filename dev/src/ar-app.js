@@ -24,6 +24,7 @@ import { createAdminGate } from './admin.js';
 import { DepthOcclusion, DEPTH_REQUEST, hideDepthFromThree } from './occlusion.js';
 import { DetectClient } from './detect-client.js';
 import { PerfMonitor } from './perf.js';
+import { RunLog } from './runlog.js';
 import {
   roadHeight, markerSizeOf, carDimsOf, driveOptsOf, clearanceOf, liftPose, laneSnapOpts, laneSnapMessage, setupMenuToggle, centerLineOn,
 } from './common.js';
@@ -54,16 +55,28 @@ function workArea(pad = Math.max(15, markerSize() * 2)) {
 const inArea = (a, x, y) => x > a.x0 && x < a.x1 && y > a.y0 && y < a.y1;
 
 // ---------- 3D ----------
-const renderer = new THREE.WebGLRenderer({ canvas: $('three'), alpha: true, antialias: true });
+// 가벼운 모드 (기본 켬): 보급형 태블릿(갤럭시 탭 A 등)이 버티도록 부하를 줄임 — 가장자리 다듬기(안티에일리어싱) 끔,
+// AR 화면 해상도 0.5배, 인식 초당 3번(위치 맞추기 전 6번, 지도·경로 만들 때 4번), 깊이 인식(가림 처리) 안 함, 차 재질 단순화, 화면 글 갱신 0.3초마다.
+// 시작 화면 관리자 카드의 [가벼운 모드]로 바꾸거나 ar.html?lite=0 / ?lite=1 (이 기기에 저장)
+const LITE = (() => {
+  const q = new URLSearchParams(location.search).get('lite');
+  try {
+    if (q === '0' || q === '1') localStorage.setItem('raim-ar-lite', q);
+    const v = localStorage.getItem('raim-ar-lite');
+    return v === null ? true : v === '1';
+  } catch (e) { return q !== '0'; }
+})();
+const renderer = new THREE.WebGLRenderer({ canvas: $('three'), alpha: true, antialias: !LITE });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local');
 // AR 화면 해상도: 태블릿 화면 그대로(2560×1600 등)면 GPU가 카메라 영상 합성과 겹쳐 버벅인다. 차·경로는 0.75배로도 충분히 또렷함
 // (?fb=1 로 원래 해상도 시험)
-const FB_SCALE = (() => { const v = +new URLSearchParams(location.search).get('fb'); return v > 0.2 && v <= 1 ? v : 0.75; })();
+const FB_SCALE = (() => { const v = +new URLSearchParams(location.search).get('fb'); return v > 0.2 && v <= 1 ? v : LITE ? 0.5 : 0.75; })();
 renderer.xr.setFramebufferScaleFactor(FB_SCALE);
 const perf = new PerfMonitor();
+const runLog = new RunLog(); // 지난 AR 기록 (몇 초 만에 멈추는 기기 진단용)
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.02, 50);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.6));
@@ -97,6 +110,15 @@ let barricadeSeenNow = false;
 const clearance = () => clearanceOf(cfg);
 const markerVis = new Map();
 
+// 가벼운 모드: 물리 기반 재질(MeshStandard) → 단순 조명 재질(Lambert). 색은 그대로, 셰이더 준비·그리기가 훨씬 가벼움
+function simplifyMaterials(obj) {
+  obj.traverse((o) => {
+    if (!o.isMesh || !o.material || !o.material.isMeshStandardMaterial) return;
+    const m = o.material;
+    o.material = new THREE.MeshLambertMaterial({ color: m.color, transparent: m.transparent, opacity: m.opacity });
+    m.dispose();
+  });
+}
 // keepProgress: 차 크기·도로 높이만 바뀐 경우(같은 지도·경로). 차 위치와 추적 중인 바리케이드를 그대로 둔다
 // (바리케이드를 잊으면, 화면 밖에서 '기억 중'이던 바리케이드를 차가 그냥 지나감)
 function rebuildWorld(keepProgress = true) {
@@ -106,6 +128,7 @@ function rebuildWorld(keepProgress = true) {
   if (keepProgress) controller.s = frac * P.length;
   disposeObject(carObj);
   carObj = makeCar(carDims());
+  if (LITE) simplifyMaterials(carObj);
   roadLayer.add(carObj);
   disposeObject(pathLine);
   pathLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(P.pts.map((p) => new THREE.Vector3(p[0], p[1], 0.05))),
@@ -145,7 +168,7 @@ const fuser = new AlignmentFuser();
 let mosaicKey = null; // 도로 영상 설정 키 (실제 영상은 detectClient 쪽)
 let scanPercent = 0; // 경로 기록 중 비춘 범위(%) — 워커가 1초에 한 번 알려 줌
 let laneBusy = false; // 자동 경로·차선 맞추기 계산 중
-let lastT = null, lastDet = -Infinity, detMs = 0, fps = 0;
+let lastT = null, lastDet = -Infinity, detMs = 0, fps = 0, detCount = 0;
 // 영상 인식은 한 번에 한 프레임씩: GPU에서 읽기(gpu) → 워커에서 인식(detect) → 결과 반영. 그동안 화면은 계속 그린다
 const detectClient = new DetectClient();
 let inflight = null; // 인식 중인 프레임 {stage, gen, t, now, wc, proj}
@@ -162,7 +185,20 @@ let flashUntil = 0;
 let lastSnap = null;
 
 // ---------- 시작 화면 ----------
+function showLite() {
+  $('btnLite').textContent = LITE ? '가벼운 모드 켬' : '가벼운 모드 끔';
+  $('btnLite').classList.toggle('off', !LITE);
+  const lr = RunLog.describe();
+  $('lastRun').hidden = !lr;
+  $('lastRun').innerHTML = lr;
+}
+// 가벼운 모드 바꾸기: 렌더러를 새로 만들어야 해서 페이지를 다시 연다
+$('btnLite').onclick = () => {
+  try { localStorage.setItem('raim-ar-lite', LITE ? '0' : '1'); } catch (e) { /* 무시 */ }
+  location.replace(location.pathname);
+};
 function describeMap() {
+  showLite();
   const n = cfg.roadMarkers.length;
   const isSheet = isSheetMap(cfg.roadMarkers);
   $('mapInfo').innerHTML = `마커 지도: <b>${n}개</b> · 마커 크기 ${markerSize()}cm${isSheet ? ' (A4 테스트 시트 기본값)' : ''}<br>` +
@@ -195,7 +231,7 @@ async function startAR() {
   try {
     // 깊이 인식(가림 처리)도 함께 요청 (가림 처리를 꺼 두면 요청 안 함 — ARCore 깊이 계산이 꽤 무거움). 이 때문에 시작이 안 되는 기기면 깊이 없이 다시
     try {
-      if (cfg.occlusion.enabled === false) throw new Error('no depth');
+      if (cfg.occlusion.enabled === false || LITE) throw new Error('no depth');
       session = await navigator.xr.requestSession('immersive-ar', { ...opts, optionalFeatures: [...opts.optionalFeatures, DEPTH_REQUEST.optional], depthSensing: DEPTH_REQUEST.depthSensing });
     } catch (e) {
       session = await navigator.xr.requestSession('immersive-ar', opts);
@@ -206,7 +242,7 @@ async function startAR() {
     return;
   }
   const f = [...(session.enabledFeatures || [])];
-  depth = { requested: cfg.occlusion.enabled !== false, supported: f.includes('depth-sensing') && session.depthUsage === 'cpu-optimized', format: session.depthDataFormat || 'luminance-alpha' };
+  depth = { requested: cfg.occlusion.enabled !== false && !LITE, supported: f.includes('depth-sensing') && session.depthUsage === 'cpu-optimized', format: session.depthDataFormat || 'luminance-alpha' };
   if (f.length && !f.includes('camera-access')) {
     session.end();
     $('startMsg').textContent = '이 기기는 AR 중 카메라 영상 접근(camera-access)이 안 돼서 마커로 위치를 맞출 수 없어요.';
@@ -224,6 +260,7 @@ async function startAR() {
   hitSource = null;
   gen++; inflight = null;
   perf.reset();
+  runLog.start({ lite: LITE, fb: FB_SCALE, features: f.join(','), depth: depth.supported });
   document.body.classList.add('in-ar');
   fuser.reset(); roadTracker.reset();
   diorama.visible = false;
@@ -240,6 +277,7 @@ function onEnd() {
   gen++; inflight = null;
   session = null; hitSource = null; binding = null; reader = null;
   document.body.classList.remove('in-ar');
+  runLog.end();
   setRecording(false);
   $('ui').hidden = true;
   $('start').hidden = false;
@@ -260,7 +298,8 @@ function onXRFrame(t, frame) {
     trackingPoor = !!pose.emulatedPosition;
     const view = pose.views[0];
     lastCenterRay = centerRay(view);
-    const rate = 6; // 초당 인식 횟수 (위치 맞춤 + 바리케이드)
+    // 초당 인식 횟수 (위치 맞춤 + 바리케이드). 가벼운 모드: 위치를 맞추기 전엔 6번(빨리 맞추게), 맞춘 뒤엔 3번, 지도·경로 만들 때 4번
+    const rate = !LITE || !fuser.ready ? 6 : mapping.active || recording.active ? 4 : 3;
     if (inflight && performance.now() - inflight.now > 3000) { if (reader) reader.cancel(); inflight = null; } // 안전장치: 결과가 안 오면 버림
     if (!inflight && reader && binding && view.camera && t - lastDet > 1000 / rate) {
       lastDet = t;
@@ -308,7 +347,12 @@ function onXRFrame(t, frame) {
   occlusion.update(frame, pose ? pose.views[0] : null, { enabled: !!pose && cfg.occlusion.enabled !== false && !mapping.active, supported: depth.supported, format: depth.format });
   renderer.render(scene, camera);
   updateHud(t);
-  perf.work(performance.now() - w0);
+  const ms = performance.now() - w0;
+  perf.work(ms);
+  if (fuser.ready) runLog.ev('aligned');
+  if (carObj.visible && diorama.visible) runLog.ev('car');
+  if (occlusion.status === 'on') runLog.ev('depth', occlusion.size && occlusion.size.join('×'));
+  runLog.frame(t, ms, () => ({ det: Math.round(detMs) }));
 }
 
 // 1) 이번 프레임의 카메라 영상을 작은 텍스처에 그리고 GPU 읽기를 걸어 둔다 (기다리지 않음)
@@ -321,6 +365,7 @@ function capture(view, t) {
   renderer.resetState();
   renderer.setRenderTarget(rt);
   if (!ok) return;
+  runLog.ev('camera', `${reader.w}×${reader.h}`);
   // 그 순간의 휴대폰 자세·투영을 같이 기억 (결과는 몇 프레임 뒤에 오지만 계산은 찍은 순간 기준)
   inflight = { stage: 'gpu', gen, t, now: performance.now(), wc: worldFromCv(view.transform.matrix), proj: Array.from(view.projectionMatrix) };
 }
@@ -351,6 +396,8 @@ function collect() {
       if (res.error) flash(`인식 오류: ${res.error}`, 5000);
       if (res.coverage !== null && res.coverage !== undefined) scanPercent = res.coverage;
       detMs = detMs * 0.8 + res.ms * 0.2;
+      runLog.ev('detect', `${Math.round(res.ms)}ms`);
+      detCount++;
       handleDetections(job, { width: img.width, height: img.height, data: res.data }, res);
     } finally {
       if (r) r.recycle(res.data);
@@ -738,7 +785,7 @@ function flash(msg, ms = 3000) {
   flashUntil = performance.now() + ms;
 }
 function updateHud(t) {
-  if (t - hudT < 200) return;
+  if (t - hudT < (LITE ? 300 : 200)) return;
   hudT = t;
   const now = performance.now();
   const seen = [...lastSeen.entries()].filter(([, s]) => now - s < 600).length;
@@ -1034,7 +1081,7 @@ function showOcclusionButton() {
 function setOcclusion(on) { cfg.occlusion.enabled = on; save(); showOcclusionButton(); }
 $('btnOcclusion').onclick = () => {
   setOcclusion(cfg.occlusion.enabled === false);
-  flash(cfg.occlusion.enabled === false ? '가림 처리를 껐어요' : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
+  flash(cfg.occlusion.enabled === false ? '가림 처리를 껐어요' : LITE ? '가림 처리를 켰어요 · 다만 가벼운 모드에서는 깊이 인식을 안 해서 가려지지 않아요' : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
 };
 $('btnDepthView').onclick = () => { showDepth = !showDepth; occlusion.setShowDepth(showDepth); $('btnDepthView').classList.toggle('off', !showDepth); };
 $('btnDepthView').classList.add('off');
@@ -1083,12 +1130,14 @@ $('btnShared').onclick = () => applySharedConfig(true);
 window.__raimAR = {
   setCarS: (v) => { controller.s = v; controller.v = 0; }, // 차를 경로 위 한 자리로 (가림 시험)
   pathLength: () => P.length,
+  detections: () => detCount,
+  carMaterials: () => { const a = []; carObj.traverse((o) => { if (o.isMesh) a.push(o.material.type); }); return a; },
   get state() {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,
       carState: controller.state, gap: controller.gap, barricade, barricadeSeenNow, recPts: recording.pts, snapped: recording.snapped, lastSnap, partial: recording.partial, scan: scanCoverage(),
       yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
-      detectMode: detectClient.mode, detMs, perf: perf.last, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
+      detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
   },
 };

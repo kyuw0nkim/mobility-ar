@@ -17,7 +17,7 @@ const page = await browser.newPage({ viewport: { width: 1024, height: 640 } });
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript("window.__raimAutoAdmin = '4300';");
 await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = 4; window.__mockDepth = true;\n${mock}`);
-await page.goto('http://localhost:8765/ar.html');
+await page.goto('http://localhost:8765/ar.html?lite=0');
 await page.evaluate(({ markers, path }) => {
   localStorage.clear();
   localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: markers, path, pathStale: false, car: { scale: 3 }, drive: { speedScale: 0.0001 } }));

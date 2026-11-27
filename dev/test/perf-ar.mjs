@@ -10,7 +10,7 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
 await page.addInitScript(mock + `
 window.__long = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__long.push(e.duration); }).observe({ entryTypes: ['longtask'] });`);
-await page.goto(`http://localhost:${port}/ar.html`);
+await page.goto(`http://localhost:${port}/ar.html?lite=${process.env.LITE ? 1 : 0}`);
 await page.evaluate(() => localStorage.clear()); await page.reload();
 await page.waitForFunction(() => !document.getElementById('btnStart').disabled);
 await page.click('#btnStart');
