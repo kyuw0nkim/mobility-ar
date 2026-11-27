@@ -83,7 +83,7 @@
       }, 33);
     }
     cancelAnimationFrame(id) { clearTimeout(id); }
-    async end() { this.ended = true; this.dispatchEvent(new Event('end')); }
+    async end() { if (this.ended) return; this.ended = true; window.__mockEndedAt = performance.now(); this.dispatchEvent(new Event('end')); }
   }
   // 실제 기기처럼 AR 층을 별도 프레임버퍼로 둔다 (화면 캔버스에 그리면 AR 화면에 안 보임)
   class FakeLayer {
@@ -184,7 +184,16 @@
     configurable: true,
     value: {
       isSessionSupported: async (mode) => mode === 'immersive-ar',
-      requestSession: async (mode, opts) => { await load(); return new FakeSession(opts); },
+      // window.__mockStart = { rejectOnce: 'InvalidStateError', hangOnce: true, hangMs, busyMs }: 세션 요청이 거절·응답 없음·방금 끝난 AR 정리 중
+      requestSession: async (mode, opts) => {
+        window.__mockReqCount = (window.__mockReqCount || 0) + 1;
+        await load();
+        const m = window.__mockStart || {};
+        if (m.rejectOnce) { const n = m.rejectOnce; m.rejectOnce = null; throw new DOMException('mock reject', n); }
+        if (m.hangOnce) { m.hangOnce = false; await new Promise((r) => setTimeout(r, m.hangMs || 1e9)); }
+        if (m.busyMs && performance.now() - (window.__mockEndedAt || -1e9) < m.busyMs) throw new DOMException('previous session still shutting down', 'InvalidStateError');
+        return new FakeSession(opts);
+      },
     },
   });
 })();
