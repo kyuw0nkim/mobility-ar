@@ -126,7 +126,8 @@ body.admin .start-btn { min-height: 76px; min-width: 240px; padding: 14px 48px; 
 .hud-card.stop { border-color: var(--stop); box-shadow: 0 0 0 3px rgba(217,83,79,.18), 0 14px 40px rgba(40,52,66,.14); }
 .hud-card.stop .dot { background: var(--stop); color: #fff; }
 .gauge { height: 8px; border-radius: 4px; background: rgba(0,68,139,.08); margin-top: 10px; overflow: hidden; }
-#speedBar { height: 100%; width: 0; background: var(--c-319); transition: width .15s linear; }
+/* 폭 대신 transform으로 늘이고 줄임 (배치를 다시 계산하지 않음) */
+#speedBar { height: 100%; width: 100%; transform-origin: 0 50%; transform: scaleX(0); background: var(--c-319); transition: transform .2s linear; }
 #speedBar.brake { background: #e6a23c; } #speedBar.stop { background: var(--stop); }
 
 /* ───── 관리자 버튼 묶음 (AR·카메라 화면 위) ───── */
