@@ -6,3 +6,4 @@ test/*.y4m
 test/*.png
 test/xr-mock/*.bin
 test/xr-mock/meta*.json
+test/xr-mock/depth*.json

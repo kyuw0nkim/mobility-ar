@@ -57,6 +57,8 @@ export const DEFAULT_CONFIG = {
     centerLine: true, // 경로 기록 때 탭을 흰 중앙선에 붙이고 [중앙선 맞추기]를 씀 (A4 시트 지도에서는 자동으로 꺼짐)
   },
   barricadeTracking: { confirmFrames: 3, windowFrames: 6, clearMs: 2000, smoothing: 0.35 },
+  // 가림 처리 (AR 버전, ARCore 깊이 인식): 실제 물체가 차보다 margin(m) + 거리×marginRel 넘게 앞에 있을 때만 가림
+  occlusion: { enabled: true, margin: 0.03, marginRel: 0.03 },
   path: roundedRectPath(ROAD.x0, ROAD.y0, ROAD.x1, ROAD.y1, ROAD.r, 8),
   pathStale: false, // 마커 지도를 새로 만든 뒤 경로를 아직 기록하지 않음
 };

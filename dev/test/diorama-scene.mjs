@@ -194,3 +194,24 @@ export function walkAround(n, { out = 35, height = 70, inward = 5, wobble = 1 } 
   }
   return res;
 }
+
+// 깊이 지도 (ARCore 깊이 인식 흉내): 카메라 앞 방향 거리(z, mm)를 dw×dh 칸으로. pose: 도로 → 카메라(cv), f·w·h: 카메라 영상 기준
+export function depthDiorama(pose, { f, w, h, dw = 160, dh = 100, noise = 0.01, seed = 1 }) {
+  const { R, t } = pose;
+  const C = [-(R[0] * t[0] + R[3] * t[1] + R[6] * t[2]), -(R[1] * t[0] + R[4] * t[1] + R[7] * t[2]), -(R[2] * t[0] + R[5] * t[1] + R[8] * t[2])];
+  const out = new Uint16Array(dw * dh);
+  let rnd = seed >>> 0;
+  const rand = () => { rnd = (rnd * 1664525 + 1013904223) >>> 0; return rnd / 4294967296; };
+  for (let j = 0; j < dh; j++) for (let i = 0; i < dw; i++) {
+    const px = ((i + 0.5) / dw) * w, py = ((j + 0.5) / dh) * h;
+    const dc = [(px - w / 2) / f, (py - h / 2) / f, 1]; // z = 1 이라 맞은 거리 t가 곧 카메라 앞 방향 거리
+    const d = [R[0] * dc[0] + R[3] * dc[1] + R[6] * dc[2], R[1] * dc[0] + R[4] * dc[1] + R[7] * dc[2], R[2] * dc[0] + R[5] * dc[1] + R[8] * dc[2]];
+    const L = Math.hypot(...d), du = d.map((v) => v / L);
+    let best = du[2] < 0 ? -C[2] / du[2] : Infinity;
+    for (const b of BOXES) best = Math.min(best, hitBox(C, du, b));
+    for (const s of SPHERES) best = Math.min(best, hitSphere(C, du, s));
+    const z = (best / L) * 10 * (1 + (rand() - 0.5) * 2 * noise); // cm → mm, 잡음
+    out[j * dw + i] = Number.isFinite(z) && z < 65000 ? Math.round(z) : 0;
+  }
+  return out;
+}
