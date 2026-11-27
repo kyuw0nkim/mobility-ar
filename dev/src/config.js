@@ -48,6 +48,7 @@ export const DEFAULT_CONFIG = {
   lane: {
     width: null, // 차선 폭(cm). null이면 영상에서 자동으로 잼
     search: null, // 탭한 경로 좌우로 차선을 찾는 범위(cm). null이면 마커 크기 × 1.2
+    roadWidth: 30, // 흰 중앙선 찾기(한 바퀴 설치)에 쓰는 도로 전체 폭(cm, 검은 차로 2 + 중앙선). 대충이어도 됨
   },
   barricadeTracking: { confirmFrames: 3, windowFrames: 6, clearMs: 2000, smoothing: 0.35 },
   path: roundedRectPath(ROAD.x0, ROAD.y0, ROAD.x1, ROAD.y1, ROAD.r, 8),

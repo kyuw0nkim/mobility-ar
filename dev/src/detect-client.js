@@ -1,6 +1,7 @@
 // 마커 인식·색 찾기·도로 영상 모으기를 워커(detect-worker.js)에 맡긴다. 워커를 못 띄우면 예전처럼 이 스레드에서 돌린다.
 import { processFrame } from './detect-worker.js';
 import { RoadMosaic } from './lane.js';
+import { findCenterLoop } from './loop.js';
 
 // ar.html 안에 글로 들어 있는 워커 소스 (build.mjs가 넣음)
 const SOURCE_IDS = ['aruco-cv', 'aruco-lib', 'detect-worker'];
@@ -27,11 +28,19 @@ export class DetectClient {
   }
   get mode() { return this.worker ? 'worker' : 'main'; }
 
-  // 도로 영상(차선 맞추기·자동 경로용)을 새로 시작. spec: RoadMosaic.specForMarkers() 결과
+  // 도로 영상(차선 맞추기·자동 경로·중앙선 찾기용)을 새로 시작. spec: {bounds, cell, grow(범위 자동 확장)}
   resetMosaic(spec) {
     this.mosaicSpec = spec;
-    if (this.worker) this.worker.postMessage({ type: 'mosaic', bounds: spec.bounds, cell: spec.cell });
-    else this.local.mosaic = new RoadMosaic(spec.bounds, spec.cell);
+    if (this.worker) this.worker.postMessage({ type: 'mosaic', bounds: spec.bounds, cell: spec.cell, grow: !!spec.grow });
+    else this.local.mosaic = new RoadMosaic(spec.bounds, spec.cell, { grow: !!spec.grow });
+  }
+  // 모은 도로 영상에서 한 바퀴 중앙선 찾기 (loop.js). 워커에서 계산
+  async findLoop(opts) {
+    if (!this.worker) {
+      try { return this.local.mosaic ? findCenterLoop(this.local.mosaic, opts) : { ok: false, reason: 'empty' }; } catch (e) { return { ok: false, reason: 'error', error: String(e && e.message) }; }
+    }
+    const r = await this.call({ type: 'findLoop', opts });
+    return r ? r.res : { ok: false, reason: 'error' };
   }
   // 지금까지 모은 도로 영상 (RoadMosaic). 워커에서는 복사본을 받아 옴
   async mosaic() {
