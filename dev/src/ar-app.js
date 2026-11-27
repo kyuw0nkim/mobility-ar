@@ -20,6 +20,7 @@ import {
 } from './xr-align.js';
 import { XRCameraReader } from './xr-camera.js';
 import { XRMarkerMapper } from './xr-mapper.js';
+import { createAdminGate } from './admin.js';
 import { DetectClient } from './detect-client.js';
 import {
   roadHeight, markerSizeOf, carDimsOf, driveOptsOf, clearanceOf, liftPose, laneSnapOpts, laneSnapMessage, setupMenuToggle, centerLineOn,
@@ -137,7 +138,7 @@ const detectClient = new DetectClient();
 let inflight = null; // 인식 중인 프레임 {stage, gen, t, now, wc, proj}
 let gen = 0; // AR 세션 번호 (끝난 세션의 늦은 결과는 버림)
 let lastSeen = new Map(); // 마커 id → 마지막으로 본 시각
-let showPath = true, showMarkers = true;
+let showPath = true, showMarkers = true; // showMarkers: 마커 테두리·인식 표시 (관리자 모드에서만 보임)
 let lastYellow = null; // 인식 표시용: 마지막 영상의 노란 후보와 판정
 // AR 지도 만들기 (setup: 한 바퀴 설치 — 지도 만들기 + 중앙선 찾기를 같이)
 const mapping = { active: false, setup: false, mapper: null, view: null, A0: null, loop: null, finding: false, lastFind: -1e9 };
@@ -152,8 +153,9 @@ function describeMap() {
   const n = cfg.roadMarkers.length;
   const isSheet = isSheetMap(cfg.roadMarkers);
   $('mapInfo').innerHTML = `마커 지도: <b>${n}개</b> · 마커 크기 ${markerSize()}cm${isSheet ? ' (A4 테스트 시트 기본값)' : ''}<br>` +
-    `경로: ${cfg.pathStale ? '<b>없음</b> · AR 안에서 [경로 기록]으로 만들어요' : `점 ${cfg.path.length}개`} · 도로 높이 ${roadH().toFixed(2)}cm` +
-    (isSheet ? '<br><span style="color:var(--amber)">디오라마에서 쓰려면 AR을 시작한 뒤 [지도 만들기]를 먼저 해 주세요.</span>' : '');
+    `경로: ${cfg.pathStale ? '<b>없음</b> · AR 안에서 [경로 기록]으로 만들어요' : `점 ${cfg.path.length}개`} · 도로 높이 ${roadH().toFixed(2)}cm<br>` +
+    `차 크기 ×${(cfg.car.scale || 1).toFixed(2)} · 속도 ×${(cfg.drive.speedScale || 1).toFixed(2)}` +
+    (isSheet ? '<br><span style="color:var(--warn)">디오라마에서 쓰려면 AR을 시작한 뒤 [지도 만들기]를 먼저 해 주세요.</span>' : '');
 }
 async function checkSupport() {
   describeMap();
@@ -162,10 +164,10 @@ async function checkSupport() {
   let ok = false;
   try { ok = !!navigator.xr && await navigator.xr.isSessionSupported('immersive-ar'); } catch (e) { /* 아래 */ }
   if (!ok) {
-    $('startMsg').innerHTML = '이 기기·브라우저는 AR(WebXR)을 지원하지 않아요.<br>갤럭시 기기의 Chrome에서 열거나, <a href="index.html">마커 버전</a>을 쓰세요.';
+    $('startMsg').textContent = '이 기기에서는 AR을 쓸 수 없어요.\n갤럭시 태블릿의 Chrome에서 열어 주세요.';
     return;
   }
-  $('startMsg').textContent = '';
+  $('startMsg').textContent = cfg.pathStale ? '아직 경로가 준비되지 않았어요 · 직원에게 알려 주세요' : '';
   $('btnStart').disabled = false;
 }
 
@@ -266,7 +268,7 @@ function onXRFrame(t, frame) {
   carObj.rotation.set(0, 0, q.heading);
   carObj.visible = !recording.active && !cfg.pathStale && !mapping.active;
   pathLine.visible = !cfg.pathStale && (showPath || recording.active) && !mapping.active;
-  markerLayer.visible = showMarkers && !mapping.active;
+  markerLayer.visible = showMarkers && gate.on && !mapping.active;
   if (mapping.setup && mapping.A0 && !mapping.finding && performance.now() - mapping.lastFind > 3000) findSetupLoop();
   // 경로 카드 위치 표시: 주황 = 확인 중, 초록 = 방금 찍음
   const cm = recording.active ? cardMean(400) : null;
@@ -479,7 +481,7 @@ function setAim(on) {
   $('aim').hidden = !(recording.active && on);
 }
 // 버튼을 누를 때는 AR 탭(select)이 생기지 않게
-$('ui').addEventListener('beforexrselect', (e) => { if (e.target.closest('button')) e.preventDefault(); });
+$('ui').addEventListener('beforexrselect', (e) => { if (e.target.closest('button, input, label, .glass, [data-noselect]')) e.preventDefault(); });
 
 function refreshRecordVis() {
   clearGroup(recordGroup);
@@ -664,7 +666,7 @@ function drawDetections() {
     }
     return;
   }
-  if (!showMarkers || !lastYellow || performance.now() - lastYellow.t > 1000) return;
+  if (!showMarkers || !gate.on || !lastYellow || performance.now() - lastYellow.t > 1000) return;
   const sx = W / lastYellow.w, sy = H / lastYellow.h;
   g.lineWidth = 2;
   g.font = '600 12px system-ui, sans-serif';
@@ -685,9 +687,12 @@ function drawDetections() {
 // 경로 기록 중 도로 평면 영상을 모은 범위(%): 디오라마 작업 범위 안 칸 중 본 칸 비율 (워커가 1초에 한 번 계산)
 const scanCoverage = () => scanPercent;
 let hudT = 0;
-function flash(msg, ms = 3000) {
+function setGuide(msg, ok) {
   $('status').textContent = msg;
-  $('status').className = 'ok';
+  $('status').classList.toggle('warn', !ok);
+}
+function flash(msg, ms = 3000) {
+  setGuide(msg, true);
   flashUntil = performance.now() + ms;
 }
 function updateHud(t) {
@@ -700,25 +705,35 @@ function updateHud(t) {
   const recLabel = fuser.ready ? '경로 기록' : '경로 기록 (위치 맞춘 뒤)';
   if ($('btnRecord').textContent !== recLabel) { $('btnRecord').textContent = recLabel; $('btnRecord').classList.toggle('off', !fuser.ready); }
   $('debug').textContent = `${fps.toFixed(0)}fps · 인식 ${detMs.toFixed(0)}ms${detectClient.mode === 'worker' ? '' : '(화면 스레드)'} · 마커 ${seen}개 · 맞춤 ${fuser.count}${reader && reader.flipLocked ? '' : ' · 영상 방향 확인 중'}`;
-  // 인식 · 판단 · 제어 카드
-  const st = controller.state === 'drive' ? '주행' : controller.state === 'brake' ? '감속' : '정지';
+  // 인식 · 판단 · 제어 카드 (관람객도 읽을 수 있는 말로, 관리자는 자세한 값 덧붙임)
+  const st = controller.state === 'drive' ? '달리는 중' : controller.state === 'brake' ? '속도를 줄이는 중' : '멈춤';
   const onPath = barricade && blocksPath(P, barricade, clearance());
   const yel = lastYellow && performance.now() - lastYellow.t < 1000 ? lastYellow.items : [];
   // 줄무늬 후보(노란 조각 2개 이상)가 탈락했을 때만 이유를 보여 줌 (노란 블록 하나는 늘 있을 수 있어서 제외)
   const rej = barricadeSeenNow ? [] : yel.filter((i) => !i.single && !i.ok);
   const rejected = rej.length ? ` · 노랑 후보 ${rej.length}개(${rej[0].verdict})` : '';
-  $('hudSense').textContent = `도로 마커 ${seen}개 · 바리케이드 ${barricadeSeenNow ? `보임(${barricadeSeenNow})` : barricade ? '기억 중' : '없음'}${rejected}`;
-  $('hudJudge').textContent = !barricade ? '장애물 없음' : !onPath ? '바리케이드 있음 · 경로 밖'
-    : controller.gap !== null ? `경로 위 · 앞 ${controller.gap.toFixed(1)}cm` : '경로 위 · 아직 멀리 있음';
+  $('hudSense').textContent = (barricadeSeenNow ? `바리케이드를 찾았어요${gate.on ? `(${barricadeSeenNow})` : ''}` : barricade ? '바리케이드를 기억하고 있어요' : '길 위에 장애물이 없어요') +
+    (gate.on ? ` · 도로 마커 ${seen}개${rejected}` : '');
+  $('hudJudge').textContent = !barricade ? '가는 길이 비어 있어요' : !onPath ? '바리케이드가 있지만 길 밖이에요'
+    : controller.gap !== null ? `길을 막고 있어요 · 앞 ${controller.gap.toFixed(1)}cm` : '길 위에 있지만 아직 멀어요';
   $('hudControl').textContent = `${st} · ${controller.v.toFixed(1)}cm/s`;
   $('speedBar').style.width = `${Math.min(100, (controller.v / controller.o.cruise) * 100)}%`;
   $('speedBar').className = controller.state;
   $('cardSense').classList.toggle('hot', !!barricadeSeenNow);
   $('cardJudge').classList.toggle('hot', !!onPath);
-  $('cardControl').classList.toggle('hot', controller.state !== 'drive');
+  $('cardControl').classList.toggle('hot', controller.state === 'brake');
+  $('cardControl').classList.toggle('stop', controller.state === 'stop');
   if (now < flashUntil) return;
   let msg, ok = false;
-  if (mapping.setup) {
+  if (!gate.on) {
+    // 관람객 안내
+    if (trackingPoor) msg = '태블릿을 천천히 움직여 주세요';
+    else if (!fuser.ready) msg = '디오라마 가장자리의 검은 사각형 표식을 화면에 비춰 주세요';
+    else if (cfg.pathStale) msg = '아직 준비 중이에요 · 직원에게 알려 주세요';
+    else if (barricade && controller.state === 'stop') { msg = '바리케이드 앞에서 멈췄어요 · 치우면 다시 출발해요'; ok = true; }
+    else if (barricade && controller.state === 'brake') { msg = '바리케이드를 알아보고 속도를 줄이고 있어요'; ok = true; }
+    else { msg = '자율주행차가 달리고 있어요 · 도로에 바리케이드를 세워 보세요'; ok = true; }
+  } else if (mapping.setup) {
     const st = mapping.mapper.status(), L = mapping.loop;
     msg = !mapping.A0 ? '테두리의 마커가 화면에 들어오게 비추며 걷기 시작하세요 (첫 마커가 등록되면 도로 영상을 모아요)'
       : `마커 ${st.confirmed.length}개 등록${st.pending.length ? ` (확인 중 ${st.pending.length})` : ''} · ` +
@@ -745,8 +760,7 @@ function updateHud(t) {
   }
   else if (cfg.pathStale) msg = '경로가 없어요 · [경로 기록]으로 만들어 주세요';
   else { msg = seen ? '위치 맞춤 완료 · 마커를 볼 때마다 더 정확해져요' : '위치 맞춤 완료 · 마커가 안 보여도 계속 달려요'; ok = true; }
-  $('status').textContent = msg;
-  $('status').className = ok ? 'ok' : 'warn';
+  setGuide(msg, ok);
 }
 
 // ---------- 버튼 ----------
@@ -754,6 +768,31 @@ $('btnStart').onclick = startAR;
 $('btnExit').onclick = () => { if (session) session.end(); };
 $('btnClear').onclick = () => { barTracker.clear(); barricade = null; flash('바리케이드를 해제했어요', 1500); };
 $('btnRealign').onclick = () => { fuser.reset(); roadTracker.reset(); flash('위치를 다시 맞춰요 · 도로 마커를 비춰 주세요'); };
+// 관람객: 위치 다시 맞추기 (기억 중인 바리케이드도 지움)
+$('btnRealignV').onclick = () => { fuser.reset(); roadTracker.reset(); barTracker.clear(); barricade = null; flash('위치를 다시 맞춰요 · 검은 사각형 표식을 비춰 주세요', 2500); };
+
+// ---------- 관람 모드 / 관리자 모드 ----------
+// 관람객: 시작 → AR → 정해진 경로로 차가 달리는 걸 봄. 설정(⚙) → 암호 → 관리자 모드(지도·경로·차 크기·속도·높이 조정)
+const gate = createAdminGate({
+  rootFor: () => (session ? $('ui') : document.body),
+  isBusy: () => recording.active || mapping.active,
+  onChange: (on) => {
+    if (!on) { // 관람 모드로: 하던 관리 작업은 취소
+      if (recording.active) setRecording(false);
+      if (mapping.setup) { setSetup(false); fuser.reset(); roadTracker.reset(); rebuildWorld(true); } else if (mapping.active) setMapping(false);
+    }
+    $('versionTag').textContent = `${on ? '관리자 모드' : '관람 모드'} · ${__BUILD_DATE__} 업데이트`;
+    flashUntil = 0;
+    drawDetections();
+    describeMap();
+  },
+});
+const gear = () => (gate.on ? gate.exit() : gate.open());
+$('btnGear').onclick = gear;
+$('btnGearAR').onclick = gear;
+$('btnLeaveAdmin').onclick = () => gate.exit();
+$('btnLeaveAdminAR').onclick = () => gate.exit();
+$('versionTag').textContent = `관람 모드 · ${__BUILD_DATE__} 업데이트`;
 // ---------- AR 지도 만들기 ----------
 function setMapping(on) {
   if (mapping.setup) setSetup(false);
@@ -874,7 +913,7 @@ async function finishSetup() {
   rebuildWorld(false);
   roadTracker.reset();
   fuser.seed(A0);
-  flash(`설치 완료 · 마커 ${map.markers.length}개 · 경로 ${(res.length / 100).toFixed(2)}m · 다른 태블릿과 쓰려면 [AR 끝내기] → [전시 설정 내보내기]`, 9000);
+  flash(`설치 완료 · 마커 ${map.markers.length}개 · 경로 ${(res.length / 100).toFixed(2)}m · 다른 태블릿과 쓰려면 [끝내기] → 시작 화면의 [전시 설정 내보내기]`, 9000);
 }
 $('btnSetup').onclick = () => setSetup(true);
 $('setupReset').onclick = () => setSetup(true);
@@ -977,6 +1016,6 @@ window.__raimAR = {
       yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
-      detectMode: detectClient.mode, detMs, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
+      detectMode: detectClient.mode, detMs, admin: gate.on, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
   },
 };

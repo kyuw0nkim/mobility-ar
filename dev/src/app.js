@@ -13,6 +13,7 @@ import {
   clone, mergeDeep, loadConfig, storeConfig, loadShared, downloadShared, sharedLabel,
 } from './store.js';
 import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
+import { createAdminGate } from './admin.js';
 import {
   roadHeight, markerSizeOf, carDimsOf, driveOptsOf, clearanceOf, liftPose, laneSnapOpts, laneSnapMessage, setupMenuToggle, centerLineOn,
 } from './common.js';
@@ -286,7 +287,7 @@ let lastK = null;
 
 function drawOverlay() {
   octx.clearRect(0, 0, overlay.width, overlay.height);
-  if (!showDetections) return;
+  if (!showDetections || !gate.on) return; // 마커 인식 표시는 관리자 모드에서만
   const lw = Math.max(2, overlay.width / 400);
   octx.lineWidth = lw;
   octx.font = `${Math.round(lw * 9)}px system-ui, sans-serif`;
@@ -355,7 +356,7 @@ function updateWorld(dt) {
 
 // ---------- HUD ----------
 let hudTimer = 0;
-const STATE_KO = { drive: '주행', brake: '감속', stop: '정지' };
+const STATE_KO = { drive: '달리는 중', brake: '속도를 줄이는 중', stop: '멈춤' };
 function updateHud(now, tracking) {
   if (now - hudTimer < 100) return;
   hudTimer = now;
@@ -366,7 +367,7 @@ function updateHud(now, tracking) {
     if (!holdStatus) {
       $('status').textContent = mapping.busy ? '계산 중…' : visible >= 2 ? '좋아요 · 계속 천천히 옆으로 이동하세요'
         : visible === 1 ? '이웃한 마커가 함께 보이게 조금 물러나세요' : '테두리의 마커를 비춰 주세요';
-      $('status').className = visible >= 2 ? 'ok' : 'warn';
+      $('status').classList.toggle('warn', visible < 2);
     }
     $('mapInfo').textContent = st.refId === null ? '아직 본 마커가 없어요'
       : `기준 ${st.refId} · 등록 ${st.confirmed.length}개 (${st.confirmed.join(', ')})` +
@@ -374,7 +375,16 @@ function updateHud(now, tracking) {
     $('debug').textContent = `${fps.toFixed(0)}fps · 인식 ${detMs.toFixed(0)}ms · 저장된 장면 ${st.frames}`;
     return;
   }
-  if (!holdStatus) {
+  if (!holdStatus && !gate.on) {
+    // 관람객 안내
+    const msg = !tracking ? '디오라마 가장자리의 검은 사각형 표식이 화면에 보이게 비춰 주세요'
+      : cfg.pathStale ? '아직 준비 중이에요 · 직원에게 알려 주세요'
+        : barricade && controller.state === 'stop' ? '바리케이드 앞에서 멈췄어요 · 치우면 다시 출발해요'
+          : barricade && controller.state === 'brake' ? '바리케이드를 알아보고 속도를 줄이고 있어요'
+            : '자율주행차가 달리고 있어요 · 도로에 바리케이드를 세워 보세요';
+    $('status').textContent = msg;
+    $('status').classList.toggle('warn', !tracking || cfg.pathStale);
+  } else if (!holdStatus) {
     let msg = tracking
       ? recording.active ? (recording.snapped ? '맞춘 경로(초록) · 괜찮으면 [완료·저장]'
         : `${aimOn ? '조준점(+)을 흰 중앙선에 맞추고 화면을 톡' : '흰 중앙선 위를 톡'} · 직선 30~50cm, 곡선 10~15cm마다 · 점 ${recording.pts.length}개(중앙선에 붙음 ${recording.pts.filter((p) => tapState.get(p) === 'ok').length}) · 한 바퀴 돌면 [중앙선 맞추기]`) : '도로 인식됨'
@@ -382,14 +392,16 @@ function updateHud(now, tracking) {
     if (tracking && !recording.active && roadCount === 1) msg = '도로 인식됨 · 마커가 2개 이상 보이면 더 안정적이에요';
     if (tracking && cfg.pathStale && !recording.active) msg = '마커 지도가 바뀌었어요 · [경로 기록]으로 새 경로를 만들어 주세요';
     $('status').textContent = msg;
-    $('status').className = tracking ? 'ok' : 'warn';
+    $('status').classList.toggle('warn', !tracking);
   }
 
-  $('hudSense').textContent = `도로 마커 ${roadCount}개 · 바리케이드 ${barricadeSeenNow ? '보임' : barricade ? '기억 중' : '없음'}`;
+  // 인식 · 판단 · 제어 카드 (관람객도 읽을 수 있는 말로, 관리자는 자세한 값 덧붙임)
+  $('hudSense').textContent = (barricadeSeenNow ? '바리케이드를 찾았어요' : barricade ? '바리케이드를 기억하고 있어요' : '길 위에 장애물이 없어요') +
+    (gate.on ? ` · 도로 마커 ${roadCount}개` : '');
   const onPath = barricade && blocksPath(P, barricade, clearance());
-  let judge = '장애물 없음';
-  if (barricade && !onPath) judge = '바리케이드 있음 · 경로 밖';
-  if (onPath) judge = controller.gap !== null ? `경로 위 · 앞 ${controller.gap.toFixed(1)}cm` : '경로 위 · 아직 멀리 있음';
+  let judge = '가는 길이 비어 있어요';
+  if (barricade && !onPath) judge = '바리케이드가 있지만 길 밖이에요';
+  if (onPath) judge = controller.gap !== null ? `길을 막고 있어요 · 앞 ${controller.gap.toFixed(1)}cm` : '길 위에 있지만 아직 멀어요';
   $('hudJudge').textContent = judge;
   $('hudControl').textContent = `${STATE_KO[controller.state]} · ${controller.v.toFixed(1)}cm/s`;
   $('speedBar').style.width = `${Math.min(100, (controller.v / controller.o.cruise) * 100)}%`;
@@ -397,7 +409,8 @@ function updateHud(now, tracking) {
   ['cardSense', 'cardJudge', 'cardControl'].forEach((id) => $(id).classList.remove('hot'));
   if (barricadeSeenNow) $('cardSense').classList.add('hot');
   if (onPath) $('cardJudge').classList.add('hot');
-  if (controller.state !== 'drive') $('cardControl').classList.add('hot');
+  if (controller.state === 'brake') $('cardControl').classList.add('hot');
+  $('cardControl').classList.toggle('stop', controller.state === 'stop');
   $('debug').textContent = `${fps.toFixed(0)}fps · 인식 ${detMs.toFixed(0)}ms · f ${focal ? focal.toFixed(0) : '-'}${cfg.tracking.focalAuto ? (focalSamples.length >= 20 ? '(자동)' : `(보정 ${focalSamples.length}/20)`) : ''}`;
 }
 
@@ -485,7 +498,7 @@ let lastSnap = null;
 
 function flash(msg, ms = 3500, cls = 'ok') {
   $('status').textContent = msg;
-  $('status').className = cls;
+  $('status').classList.toggle('warn', cls === 'warn');
   flashUntil = performance.now() + ms;
 }
 // 조준점 켬(기본): 손가락 위치 대신 화면 가운데(조준점)를 쓴다 (손가락은 화면에서 2~3mm 빗나가고, 디오라마에서는 그 몇 배)
@@ -689,6 +702,30 @@ $('recDone').onclick = () => {
   rebuildWorld(false);
 };
 $('btnSettings').onclick = openSettings;
+$('btnSettingsStart').onclick = openSettings;
+
+// ---------- 관람 모드 / 관리자 모드 ----------
+// 관람객: 시작 → 카메라 → 정해진 경로로 차가 달리는 걸 봄. 설정(⚙) → 암호 → 관리자 모드(지도·경로·차 크기·속도·높이·설정)
+const gate = createAdminGate({
+  isBusy: () => recording.active || mapping.active,
+  onChange: (on) => {
+    if (!on) { // 관람 모드로: 하던 관리 작업은 취소
+      if (recording.active) setRecording(false);
+      if (mapping.active) setMapping(false);
+      $('settings').hidden = true;
+    }
+    $('versionTag').textContent = `${on ? '관리자 모드' : '관람 모드'} · ${__BUILD_DATE__} 업데이트`;
+    flashUntil = 0;
+    drawOverlay();
+  },
+});
+const gear = () => (gate.on ? gate.exit() : gate.open());
+$('btnGear').onclick = gear;
+$('btnGearUI').onclick = gear;
+$('btnLeaveAdmin').onclick = () => gate.exit();
+$('btnLeaveAdminUI').onclick = () => gate.exit();
+$('btnHome').onclick = () => location.reload();
+$('versionTag').textContent = `관람 모드 · ${__BUILD_DATE__} 업데이트`;
 // 좁은 화면에서 버튼 접기 (이 기기에만 기억)
 setupMenuToggle('raim-ar-menu-collapsed');
 $('btnFull').onclick = () => {
@@ -725,7 +762,7 @@ window.__raim = {
       v: controller && controller.v, carState: controller && controller.state,
       gap: controller && controller.gap, focal, camPose, recPts: recording.pts,
       mapping: mapping.active ? mapping.mapper.status() : null, lastMapResult, roadMarkers: cfg.roadMarkers,
-      snapped: recording.snapped, lastSnap, mosaicFrames: mosaic && mosaic.frames, path: cfg.path, carScale: cfg.car.scale, speedScale: cfg.drive.speedScale, roadHeight: roadH(), worldZ: world.position.z, cruise: controller && controller.o.cruise, gpu: { ...renderer.info.memory },
+      snapped: recording.snapped, lastSnap, mosaicFrames: mosaic && mosaic.frames, path: cfg.path, carScale: cfg.car.scale, speedScale: cfg.drive.speedScale, admin: gate.on, roadHeight: roadH(), worldZ: world.position.z, cruise: controller && controller.o.cruise, gpu: { ...renderer.info.memory },
     };
   },
   startCamera,

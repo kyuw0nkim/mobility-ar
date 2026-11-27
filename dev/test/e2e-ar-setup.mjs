@@ -12,6 +12,7 @@ const meta = JSON.parse(readFileSync(new URL('./xr-mock/meta-dio.json', import.m
 const TRUE = meta.TRUE, HOLD = 6;
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
+  await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = ${HOLD};\n${mock}`);
 await page.goto('http://localhost:8765/ar.html');

@@ -13,6 +13,7 @@ const shared = (savedAt, x0) => ({
 });
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ acceptDownloads: true });
+await ctx.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (전시 설정 내보내기는 관리자만)
 const page = await ctx.newPage();
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 const st = () => page.evaluate(() => window.__raim.state);
