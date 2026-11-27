@@ -1,227 +1,224 @@
-// 나만의 차: 펴서 찍은 도안(텍스처 한 장)을 입힌 3D 차. 치수와 그림 칸은 car-template.js를 따른다.
-//  - 차체(옆·앞·뒤·보닛·트렁크) + 지붕(뚜껑: 옆창·지붕·앞유리·뒷유리) + 실내(바닥·좌석·계기판·운전대)
-//  - setOpen(t): 0 = 지붕 닫힘, 1 = 지붕이 사라지고 실내가 보임 (AR에서 태블릿이 차에 가까이 가면 1 쪽으로)
-// 좌표: x 앞, y 왼쪽, z 위 (scene.js makeCar와 같음). 차 가운데 아래가 원점
+// 나만의 차 3D: 도안의 옆모습 실루엣을 차 폭만큼 밀어 낸(압출) 몸체에 색칠한 도안을 입힌다.
+//  - 옆면 = ① 겉모습의 오른쪽/왼쪽 그림, 앞·뒤 면 = ② 앞모습/뒷모습, 지붕·보닛 등 윗면 = 옆 그림 가장자리 색(지붕 띠는 고른 지붕 색)
+//  - 창문 아래 높이(벨트 선)에서 위·아래를 나눠, 위(뚜껑)는 setOpen(t)로 서서히 사라지고 안쪽 바닥에 ② 실내 그림이 보인다
+//  - 바퀴·로보택시 센서는 따로 붙인 3D
+// 좌표: x 앞, y 왼쪽, z 위 (scene.js makeCar와 같음). 바퀴 아래가 z = 0, 차 길이 가운데가 x = 0
 import * as THREE from 'three';
-import { SHEET, REGIONS, PROFILE, INTERIOR, RATIO, paperUV, paperPoint } from './car-template.js';
+import { CAR_TEMPLATES, PAPER } from './car-templates.js';
+import { ROOF_PATCH } from './car-paint.js';
 
-// 면 모으기: 사각형·상자를 한 BufferGeometry로
-class Builder {
-  constructor() { this.pos = []; this.uv = []; this.idx = []; }
-  // 네 점(시계 반대 방향, 바깥에서 볼 때)과 텍스처 좌표
-  quad(p, t) {
-    const n = this.pos.length / 3;
-    for (let i = 0; i < 4; i++) { this.pos.push(...p[i]); this.uv.push(...t[i]); }
-    this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
-  }
-  geometry() {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setIndex(this.idx);
-    g.computeVertexNormals();
-    return g;
-  }
-}
-
-export function carShape(length) {
-  const L = length, W = L * RATIO.width, H = L * RATIO.height;
-  return { L, W, H, X: (a) => (a - 0.5) * L, Y: (c) => (c - 0.5) * W, Z: (b) => b * H };
-}
-
-// texture: 펴서 찍은 도안(THREE.Texture). lite: 가벼운 재질(Lambert)
-export function makeDrawnCar(dims, texture, { lite = false } = {}) {
-  const { L, W, H, X, Y, Z } = carShape(dims.length);
-  const P = PROFILE, I = INTERIOR;
-  const [r0, r1, f1, f0] = P.cabin;
-  const ci = P.cabinInset, wl = P.wall;
-  const Mat = lite ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
-  const extra = lite ? {} : { roughness: 0.55, metalness: 0.05 };
-  const g = new THREE.Group();
-  const uvS = (a, b) => paperUV('side', a, b);
-  const uvT = (a, c) => paperUV('top', a, c);
-  const uvI = (a, c) => paperUV('interior', a, c);
-
-  // ── 차체 ──
-  const body = new Builder();
-  for (const side of [0, 1]) { // c = 0: 오른쪽(y−), 1: 왼쪽(y+)
-    const y = Y(side), pts = [[0, P.sill], [1, P.sill], [1, P.belt], [0, P.belt]];
-    const ps = pts.map(([a, b]) => [X(a), y, Z(b)]), ts = pts.map(([a, b]) => uvS(a, b));
-    if (side) { ps.reverse(); ts.reverse(); }
-    body.quad(ps, ts);
-  }
-  // 앞(a = 1): 앞에서 보면 오른쪽이 차의 왼쪽(c 큼) → 그림 가로 = c
-  body.quad([[X(1), Y(0), Z(P.sill)], [X(1), Y(1), Z(P.sill)], [X(1), Y(1), Z(P.belt)], [X(1), Y(0), Z(P.belt)]],
-    [paperUV('front', 0, 0), paperUV('front', 1, 0), paperUV('front', 1, 1), paperUV('front', 0, 1)]);
-  // 뒤(a = 0): 뒤에서 보면 오른쪽이 차의 오른쪽(c 작음) → 그림 가로 = 1 − c
-  body.quad([[X(0), Y(1), Z(P.sill)], [X(0), Y(0), Z(P.sill)], [X(0), Y(0), Z(P.belt)], [X(0), Y(1), Z(P.belt)]],
-    [paperUV('back', 0, 0), paperUV('back', 1, 0), paperUV('back', 1, 1), paperUV('back', 0, 1)]);
-  // 윗면: 트렁크, 보닛, 양옆 문턱 (실내가 열리는 곳 a r0~f0, c wl~1−wl는 비움)
-  const top = (a0, a1, c0, c1, z = Z(P.belt)) => body.quad(
-    [[X(a0), Y(c0), z], [X(a1), Y(c0), z], [X(a1), Y(c1), z], [X(a0), Y(c1), z]],
-    [uvT(a0, c0), uvT(a1, c0), uvT(a1, c1), uvT(a0, c1)]);
-  top(0, r0, 0, 1); top(f0, 1, 0, 1); top(r0, f0, 0, wl); top(r0, f0, 1 - wl, 1);
-
-  // ── 실내 (도안의 실내 칸을 위에서 비춤) ──
-  const inside = new Builder();
-  const flat = (a0, a1, c0, c1, b) => inside.quad(
-    [[X(a0), Y(c0), Z(b)], [X(a1), Y(c0), Z(b)], [X(a1), Y(c1), Z(b)], [X(a0), Y(c1), Z(b)]],
-    [uvI(a0, c0), uvI(a1, c0), uvI(a1, c1), uvI(a0, c1)]);
-  // 상자: 모든 면을 위에서 본 실내 그림으로 (옆면은 가장자리 색이 아래로 이어짐)
-  const box = (a0, a1, c0, c1, b0, b1) => {
-    flat(a0, a1, c0, c1, b1);
-    const q = (p) => inside.quad(p.map(([a, c, b]) => [X(a), Y(c), Z(b)]), p.map(([a, c]) => uvI(a, c)));
-    q([[a1, c0, b0], [a1, c1, b0], [a1, c1, b1], [a1, c0, b1]]);
-    q([[a0, c1, b0], [a0, c0, b0], [a0, c0, b1], [a0, c1, b1]]);
-    q([[a0, c0, b0], [a1, c0, b0], [a1, c0, b1], [a0, c0, b1]]);
-    q([[a1, c1, b0], [a0, c1, b0], [a0, c1, b1], [a1, c1, b1]]);
-  };
-  flat(r0, f0, wl, 1 - wl, P.floor);
-  for (const s of I.seats) {
-    box(s.a0, s.a1, s.c0, s.c1, P.floor, I.seatTop);
-    box(s.a0, s.a0 + s.back, s.c0, s.c1, P.floor, I.backTop);
-  }
-  const d = I.dash;
-  box(d.a0, d.a1, d.c0, d.c1, P.floor, d.top);
-
-  // 실내 벽 (안쪽에서 보이는 면, 단색)
-  const wall = new Builder();
-  const wq = (p) => wall.quad(p.map(([a, c, b]) => [X(a), Y(c), Z(b)]), [[0, 0], [1, 0], [1, 1], [0, 1]]);
-  const fb = P.floor, bt = P.belt;
-  wq([[r0, 1 - wl, fb], [r0, wl, fb], [r0, wl, bt], [r0, 1 - wl, bt]]);
-  wq([[f0, wl, fb], [f0, 1 - wl, fb], [f0, 1 - wl, bt], [f0, wl, bt]]);
-  wq([[f0, wl, fb], [r0, wl, fb], [r0, wl, bt], [f0, wl, bt]]);
-  wq([[r0, 1 - wl, fb], [f0, 1 - wl, fb], [f0, 1 - wl, bt], [r0, 1 - wl, bt]]);
-  // 바닥 밑면
-  wq([[0, 1, P.sill], [1, 1, P.sill], [1, 0, P.sill], [0, 0, P.sill]]);
-
-  // ── 지붕 (뚜껑) ──
-  const cab = new Builder();
-  for (const side of [0, 1]) {
-    const c = side ? 1 - ci : ci;
-    const pts = [[r0, P.belt], [f0, P.belt], [f1, P.roof], [r1, P.roof]];
-    const ps = pts.map(([a, b]) => [X(a), Y(c), Z(b)]), ts = pts.map(([a, b]) => uvS(a, b));
-    if (side) { ps.reverse(); ts.reverse(); }
-    cab.quad(ps, ts);
-  }
-  const slope = (aLo, aHi, bLo, bHi) => cab.quad(
-    [[X(aLo), Y(ci), Z(bLo)], [X(aLo), Y(1 - ci), Z(bLo)], [X(aHi), Y(1 - ci), Z(bHi)], [X(aHi), Y(ci), Z(bHi)]],
-    [uvT(aLo, ci), uvT(aLo, 1 - ci), uvT(aHi, 1 - ci), uvT(aHi, ci)]);
-  slope(f0, f1, P.belt, P.roof); // 앞유리
-  slope(r1, r0, P.roof, P.belt); // 뒷유리
-  cab.quad([[X(r1), Y(ci), Z(P.roof)], [X(f1), Y(ci), Z(P.roof)], [X(f1), Y(1 - ci), Z(P.roof)], [X(r1), Y(1 - ci), Z(P.roof)]],
-    [uvT(r1, ci), uvT(f1, ci), uvT(f1, 1 - ci), uvT(r1, 1 - ci)]);
-
-  const map = texture || null;
-  const bodyMat = new Mat({ map, side: THREE.DoubleSide, ...extra });
-  const insideMat = new Mat({ map, side: THREE.DoubleSide, ...extra });
-  const wallMat = new Mat({ color: 0x8a96a3, side: THREE.DoubleSide, ...extra });
-  const cabinMat = new Mat({ map, side: THREE.DoubleSide, transparent: true, opacity: 1, ...extra });
-  g.add(new THREE.Mesh(body.geometry(), bodyMat));
-  const interior = new THREE.Group();
-  interior.add(new THREE.Mesh(inside.geometry(), insideMat), new THREE.Mesh(wall.geometry(), wallMat));
-  // 운전대
-  const wheelR = I.wheel.r * W;
-  const steer = new THREE.Mesh(new THREE.TorusGeometry(wheelR, wheelR * 0.18, 6, 18), new Mat({ color: 0x222831, ...extra }));
-  steer.position.set(X(I.wheel.a), Y(I.wheel.c), Z(0.42));
-  steer.rotation.set(0, Math.PI / 2 - 0.5, 0);
-  interior.add(steer);
-  g.add(interior);
-  const cabin = new THREE.Mesh(cab.geometry(), cabinMat);
-  cabin.renderOrder = 2;
-  g.add(cabin);
-
-  // 바퀴
-  const wr = P.wheelR * H;
-  const wheelGeo = new THREE.CylinderGeometry(wr, wr, W * 0.16, 18);
-  const wheelMat = new Mat({ color: 0x1d1f22, ...extra });
-  const hubGeo = new THREE.CylinderGeometry(wr * 0.45, wr * 0.45, W * 0.17, 12);
-  const hubMat = new Mat({ color: 0xc9d1d9, ...extra });
-  for (const a of P.wheels) for (const sy of [-1, 1]) {
-    const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.position.set(X(a), sy * (W / 2 - W * 0.04), wr);
-    const hub = new THREE.Mesh(hubGeo, hubMat);
-    hub.position.copy(w.position);
-    g.add(w, hub);
-  }
-  // 브레이크등: 멈출 때만 빨갛게 (평소엔 그린 그림이 보이게 투명)
-  const brakeMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0 });
-  for (const [u0, u1] of [[0.05, 0.25], [0.75, 0.95]]) {
-    const c0 = 1 - u1, c1 = 1 - u0, b0 = P.sill + 0.5 * (P.belt - P.sill), b1 = P.sill + 0.8 * (P.belt - P.sill);
-    const m = new THREE.Mesh(new THREE.PlaneGeometry((b1 - b0) * H, (c1 - c0) * W), brakeMat); // 판의 가로 → 높이(z), 세로 → 폭(y)
-    m.position.set(X(0) - 0.02, (Y(c0) + Y(c1)) / 2, (Z(b0) + Z(b1)) / 2);
-    m.rotation.y = -Math.PI / 2; // 뒤(−x)를 봄
-    g.add(m);
-  }
-
-  let open = -1;
-  function setOpen(t) {
-    t = Math.min(1, Math.max(0, t));
-    if (Math.abs(t - open) < 0.005) return;
-    open = t;
-    cabin.visible = t < 0.98;
-    cabinMat.opacity = 1 - t;
-    cabinMat.transparent = t > 0.005;
-    cabinMat.depthWrite = t <= 0.005;
-    cabinMat.needsUpdate = true;
-    interior.visible = t > 0.005;
-  }
-  setOpen(0);
-  g.userData = {
-    drawn: true, setOpen, get open() { return open; },
-    brakeMat, setBrake: (on) => { brakeMat.opacity = on ? 0.85 : 0; },
-    shape: { L, W, H },
-  };
-  return g;
-}
-
-// ── 기본 그림 (스캔 없이 달릴 때): 도안 칸을 색으로 채운 텍스처 ──
-export function defaultCarCanvas(color = '#e2453c', scale = 4) {
-  const cv = document.createElement('canvas');
-  cv.width = Math.round(SHEET.w * scale); cv.height = Math.round(SHEET.h * scale);
-  const ctx = cv.getContext('2d');
-  ctx.scale(scale, scale);
-  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, SHEET.w, SHEET.h);
-  const P = PROFILE, I = INTERIOR, [r0, r1, f1, f0] = P.cabin;
-  const rect = (reg, a0, b0, a1, b1, fill) => {
-    const [x0, y1] = paperPoint(reg, a0, b0), [x1, y0] = paperPoint(reg, a1, b1);
-    ctx.fillStyle = fill; ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
-  };
-  const polyFill = (reg, pts, fill) => {
-    ctx.beginPath();
-    pts.forEach(([a, b], i) => { const [x, y] = paperPoint(reg, a, b); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
-    ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
-  };
-  const glass = '#9fc6e6', dark = '#30343a';
-  // 옆: 차체, 지붕, 창
-  rect('side', 0, P.sill, 1, P.belt, color);
-  polyFill('side', [[r0, P.belt], [f0, P.belt], [f1, P.roof], [r1, P.roof]], color);
-  const wb = P.belt + 0.05, wt = P.roof - 0.07, k0 = (wb - P.belt) / (P.roof - P.belt), k1 = (wt - P.belt) / (P.roof - P.belt);
-  const lerp = (u, v, t) => u + (v - u) * t, pil = (r1 + f1) / 2;
-  polyFill('side', [[lerp(r0, r1, k0) + 0.03, wb], [pil - 0.012, wb], [pil - 0.012, wt], [lerp(r0, r1, k1) + 0.03, wt]], glass);
-  polyFill('side', [[pil + 0.012, wb], [lerp(f0, f1, k0) - 0.03, wb], [lerp(f0, f1, k1) - 0.03, wt], [pil + 0.012, wt]], glass);
-  rect('side', 0.955, 0.38, 0.995, 0.46, '#fff6c0'); rect('side', 0.005, 0.38, 0.04, 0.46, '#a01818');
-  // 앞·뒤
-  rect('front', 0, 0, 1, 1, color);
-  rect('front', 0.06, 0.45, 0.24, 0.8, '#fff6c0'); rect('front', 0.76, 0.45, 0.94, 0.8, '#fff6c0'); rect('front', 0.32, 0.3, 0.68, 0.7, dark);
-  rect('back', 0, 0, 1, 1, color);
-  rect('back', 0.05, 0.5, 0.25, 0.8, '#a01818'); rect('back', 0.75, 0.5, 0.95, 0.8, '#a01818'); rect('back', 0.36, 0.2, 0.64, 0.5, '#f4f4f4');
-  // 위: 차체, 앞유리·뒷유리, 지붕
-  rect('top', 0, 0, 1, 1, color);
-  rect('top', f1, P.cabinInset, f0, 1 - P.cabinInset, glass); rect('top', r0, P.cabinInset, r1, 1 - P.cabinInset, glass);
-  // 실내: 바닥, 좌석, 계기판
-  rect('interior', 0, 0, 1, 1, '#5b6470');
-  for (const s of I.seats) { rect('interior', s.a0, s.c0, s.a1, s.c1, '#d9b48a'); rect('interior', s.a0, s.c0, s.a0 + s.back, s.c1, '#b48a5e'); }
-  rect('interior', I.dash.a0, I.dash.c0, I.dash.a1, I.dash.c1, dark);
-  // 외곽선 (도안처럼)
-  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 0.5;
-  for (const k of Object.keys(REGIONS)) { const r = REGIONS[k]; ctx.strokeRect(r.x, r.y, r.w, r.h); }
-  return cv;
-}
+const uvOf = (X, Y) => [X / PAPER.w, 1 - Y / PAPER.h];
 
 export function canvasTexture(cv) {
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
+}
+
+// 도안 종이 ↔ 차 좌표 변환 (차 길이 length)
+export function carFrame(vehicle, length) {
+  const t = CAR_TEMPLATES[vehicle];
+  const R = t.ext.sides[0], Lf = t.ext.sides[1];
+  const s = length / (R.bbox[2] - R.bbox[0]);
+  const cxR = (R.bbox[0] + R.bbox[2]) / 2, cxL = (Lf.bbox[0] + Lf.bbox[2]) / 2;
+  const zTop = (R.ground - R.bbox[1]) * s, zBot = (R.ground - R.bbox[3]) * s;
+  const F = t.int.views[0].bbox, B = t.int.views[1].bbox;
+  const W = s * ((F[2] - F[0]) / (F[3] - F[1])) * (R.bbox[3] - R.bbox[1]);
+  const winBottom = Math.max(...R.window.map((r) => r[3]));
+  const zBelt = (R.ground - winBottom) * s;
+  const xmin = (R.bbox[0] - cxR) * s, xmax = (R.bbox[2] - cxR) * s;
+  const I = t.int.interior, xa = xmin + 0.03 * length, xb = xmax - 0.03 * length;
+  return {
+    t, R, Lf, s, L: length, W, H: zTop, zTop, zBot, zBelt, xmin, xmax,
+    toCar: (X, Y) => [(X - cxR) * s, (R.ground - Y) * s],
+    right: (x, z) => uvOf(cxR + x / s, R.ground - z / s),
+    left: (x, z) => uvOf(cxL - x / s, Lf.ground - z / s),
+    front: (y, z) => uvOf(F[0] + ((y + W / 2) / W) * (F[2] - F[0]), F[1] + ((zTop - z) / (zTop - zBot)) * (F[3] - F[1])),
+    back: (y, z) => uvOf(B[0] + ((W / 2 - y) / W) * (B[2] - B[0]), B[1] + ((zTop - z) / (zTop - zBot)) * (B[3] - B[1])),
+    interior: (x, y) => uvOf(I[0] + ((x - xa) / (xb - xa)) * (I[2] - I[0]), I[1] + ((W / 2 - y) / W) * (I[3] - I[1])),
+    floorX: [xa, xb],
+  };
+}
+
+// 실루엣을 밀어 낸 몸체 + 면마다 텍스처 좌표 (그룹 0 = ① 겉모습 그림, 1 = ② 앞·뒤 그림)
+function bodyGeometry(fr) {
+  const { W, s } = fr;
+  const pts = fr.R.silhouette.map(([X, Y]) => new THREE.Vector2(...fr.toCar(X, Y)));
+  const shape = new THREE.Shape(pts);
+  const bs = 0.035 * fr.H, bt = 0.06 * W, depth = W - 2 * bt;
+  let g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bt, bevelSize: bs, bevelOffset: -bs, bevelSegments: 3, curveSegments: 2, steps: 1 });
+  if (g.index) g = g.toNonIndexed();
+  const P = g.attributes.position, n = P.count;
+  // (모양 x, 모양 y, 압출 z) → 차 (x, −z + depth/2, y): 행렬식 +1이라 면 방향(바깥)이 그대로
+  const pos = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { pos[i * 3] = P.getX(i); pos[i * 3 + 1] = depth / 2 - P.getZ(i); pos[i * 3 + 2] = P.getY(i); }
+  const uv = new Float32Array(n * 2), faceN = new Float32Array(n * 3);
+  const cls = new Uint8Array(n / 3);
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), nn = new THREE.Vector3();
+  const inset = 2.6 * s; // 윗면·가장자리는 옆 그림의 테두리 선보다 조금 안쪽 색을 씀
+  const cxR = (fr.R.bbox[0] + fr.R.bbox[2]) / 2;
+  const roofUV = uvOf((ROOF_PATCH[0] + ROOF_PATCH[2]) / 2, (ROOF_PATCH[1] + ROOF_PATCH[3]) / 2);
+  for (let f = 0; f < n / 3; f++) {
+    a.fromArray(pos, f * 9); b.fromArray(pos, f * 9 + 3); c.fromArray(pos, f * 9 + 6);
+    nn.crossVectors(b.clone().sub(a), c.clone().sub(b)).normalize();
+    const k = Math.abs(nn.y) >= 0.8 ? (nn.y < 0 ? 0 : 1) : nn.x >= 0.72 ? 2 : nn.x <= -0.72 ? 3 : 4;
+    cls[f] = k;
+    const cy = (a.y + b.y + c.y) / 3;
+    let roofTop = false;
+    if (k === 4 && nn.z > 0.45) { // 윗면: 옆 그림에서 그 자리(안쪽으로 조금)가 지붕 띠 안이면 지붕 색
+      const hl0 = Math.hypot(nn.x, nn.z) || 1;
+      const cx = (a.x + b.x + c.x) / 3 - (1.0 * s * nn.x) / hl0, cz = (a.z + b.z + c.z) / 3 - (1.0 * s * nn.z) / hl0;
+      const X = cxR + cx / s, Y = fr.R.ground - cz / s;
+      roofTop = fr.R.roof.some((r) => X >= r[0] && X <= r[2] && Y <= r[3] + 0.3);
+    }
+    const hl = Math.hypot(nn.x, nn.z) || 1;
+    for (let v = 0; v < 3; v++) {
+      const i = f * 3 + v, x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2];
+      let u;
+      if (k === 0) u = fr.right(x, z);
+      else if (k === 1) u = fr.left(x, z);
+      else if (k === 2) u = fr.front(y, z);
+      else if (k === 3) u = fr.back(y, z);
+      else {
+        const xi = x - (inset * nn.x) / hl, zi = z - (inset * nn.z) / hl;
+        u = cy < 0 ? fr.right(xi, zi) : fr.left(xi, zi);
+        if (roofTop) u = roofUV; // 평평한 지붕 윗면: 지붕 색 (그 자리 옆 그림이 지붕 띠 안이면)
+      }
+      uv[i * 2] = u[0]; uv[i * 2 + 1] = u[1];
+      faceN[i * 3] = nn.x; faceN[i * 3 + 1] = nn.y; faceN[i * 3 + 2] = nn.z;
+    }
+  }
+  // 부드러운 법선: 같은 자리의 면 중 55° 안쪽으로 꺾인 면끼리만 평균 (각진 곳은 그대로)
+  const key = (i) => `${Math.round(pos[i * 3] * 1e4)},${Math.round(pos[i * 3 + 1] * 1e4)},${Math.round(pos[i * 3 + 2] * 1e4)}`;
+  const at = new Map();
+  for (let i = 0; i < n; i++) { const k = key(i); if (!at.has(k)) at.set(k, []); at.get(k).push(i); }
+  const nor = new Float32Array(n * 3), cosT = Math.cos((55 * Math.PI) / 180);
+  for (const list of at.values()) for (const i of list) {
+    let x = 0, y = 0, z = 0;
+    for (const j of list) {
+      const d = faceN[i * 3] * faceN[j * 3] + faceN[i * 3 + 1] * faceN[j * 3 + 1] + faceN[i * 3 + 2] * faceN[j * 3 + 2];
+      if (d >= cosT) { x += faceN[j * 3]; y += faceN[j * 3 + 1]; z += faceN[j * 3 + 2]; }
+    }
+    const l = Math.hypot(x, y, z) || 1;
+    nor[i * 3] = x / l; nor[i * 3 + 1] = y / l; nor[i * 3 + 2] = z / l;
+  }
+  // 재질 그룹으로 정렬: ① 그림(옆·윗면) 먼저, ② 그림(앞·뒤)
+  const order = [...cls.keys()].sort((p, q) => (cls[p] === 2 || cls[p] === 3 ? 1 : 0) - (cls[q] === 2 || cls[q] === 3 ? 1 : 0));
+  const pos2 = new Float32Array(n * 3), uv2 = new Float32Array(n * 2), nor2 = new Float32Array(n * 3);
+  let nExt = 0;
+  order.forEach((f, o) => {
+    if (!(cls[f] === 2 || cls[f] === 3)) nExt++;
+    for (let v = 0; v < 3; v++) {
+      const i = f * 3 + v, j = o * 3 + v;
+      pos2.set(pos.subarray(i * 3, i * 3 + 3), j * 3); nor2.set(nor.subarray(i * 3, i * 3 + 3), j * 3); uv2.set(uv.subarray(i * 2, i * 2 + 2), j * 2);
+    }
+  });
+  g.dispose();
+  const out = new THREE.BufferGeometry();
+  out.setAttribute('position', new THREE.BufferAttribute(pos2, 3));
+  out.setAttribute('normal', new THREE.BufferAttribute(nor2, 3));
+  out.setAttribute('uv', new THREE.BufferAttribute(uv2, 2));
+  out.addGroup(0, nExt * 3, 0);
+  out.addGroup(nExt * 3, (n / 3 - nExt) * 3, 1);
+  return out;
+}
+
+// 실루엣에서 높이 z일 때 가장 뒤(x 최소) 자리 (브레이크등 위치)
+function backXAt(fr, z) {
+  const P = fr.R.silhouette.map(([X, Y]) => fr.toCar(X, Y));
+  let best = Infinity;
+  for (let i = 0; i < P.length; i++) {
+    const [x0, z0] = P[i], [x1, z1] = P[(i + 1) % P.length];
+    if ((z0 - z) * (z1 - z) > 0 || z0 === z1) continue;
+    best = Math.min(best, x0 + ((z - z0) / (z1 - z0)) * (x1 - x0));
+  }
+  return Number.isFinite(best) ? best : fr.xmin;
+}
+
+// painted: car-paint.js paintCar() 결과 {vehicle, ext, int}
+export function makeDrawnCar(dims, painted, { lite = false } = {}) {
+  const fr = carFrame(painted.vehicle, dims.length);
+  const { W, H, zBelt, zBot } = fr;
+  const Mat = lite ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
+  const extra = lite ? {} : { roughness: 0.45, metalness: 0.05 };
+  const texExt = canvasTexture(painted.ext), texInt = canvasTexture(painted.int);
+  const g = new THREE.Group();
+
+  // 벨트 선으로 위·아래 나누기 (세계 좌표 평면, 그리기 직전에 차 위치로 갱신)
+  const lowerLocal = new THREE.Plane(new THREE.Vector3(0, 0, -1), zBelt), upperLocal = new THREE.Plane(new THREE.Vector3(0, 0, 1), -zBelt);
+  const lowerPlane = new THREE.Plane(), upperPlane = new THREE.Plane();
+  const updatePlanes = (m) => { lowerPlane.copy(lowerLocal).applyMatrix4(m); upperPlane.copy(upperLocal).applyMatrix4(m); };
+
+  const geo = bodyGeometry(fr);
+  const lowerMats = [new Mat({ map: texExt, clippingPlanes: [lowerPlane], ...extra }), new Mat({ map: texInt, clippingPlanes: [lowerPlane], ...extra })];
+  const innerMat = new Mat({ color: 0xc9d0d8, side: THREE.BackSide, clippingPlanes: [lowerPlane], ...extra });
+  const lidMats = [new Mat({ map: texExt, clippingPlanes: [upperPlane], transparent: false, ...extra }), new Mat({ map: texInt, clippingPlanes: [upperPlane], transparent: false, ...extra })];
+  const lower = new THREE.Mesh(geo, lowerMats), inner = new THREE.Mesh(geo, innerMat), lid = new THREE.Mesh(geo, lidMats);
+  for (const m of [lower, inner, lid]) m.onBeforeRender = () => updatePlanes(g.matrixWorld);
+  lid.renderOrder = 2;
+  const lidGroup = new THREE.Group();
+  lidGroup.add(lid);
+  g.add(lower, inner, lidGroup);
+
+  // 실내 바닥 (② 실내 그림)
+  const zFloor = zBelt - 0.4 * (zBelt - zBot);
+  const [xa, xb] = fr.floorX, m = 0.05 * W;
+  const fg = new THREE.BufferGeometry();
+  const corners = [[xa, -W / 2 + m], [xb, -W / 2 + m], [xb, W / 2 - m], [xa, W / 2 - m]];
+  fg.setAttribute('position', new THREE.Float32BufferAttribute(corners.flatMap(([x, y]) => [x, y, zFloor]), 3));
+  fg.setAttribute('uv', new THREE.Float32BufferAttribute(corners.flatMap(([x, y]) => fr.interior(x, y)), 2));
+  fg.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  fg.setIndex([0, 1, 2, 0, 2, 3]);
+  const floor = new THREE.Mesh(fg, new Mat({ map: texInt, ...extra }));
+  g.add(floor);
+
+  // 바퀴 (오른쪽 그림의 바퀴 자리)
+  const tireMat = new Mat({ color: 0x2b2d31, ...extra }), hubMat = new Mat({ color: 0xc9ced4, ...extra });
+  const tw = 0.2 * W;
+  for (const tire of fr.R.tires) {
+    const [x, z] = fr.toCar(tire.cx, tire.cy), r = tire.r * fr.s;
+    const tg = new THREE.CylinderGeometry(r, r, tw, 24), hg = new THREE.CylinderGeometry(r * 0.5, r * 0.5, tw * 1.06, 16);
+    for (const sy of [-1, 1]) {
+      const w = new THREE.Mesh(tg, tireMat), h = new THREE.Mesh(hg, hubMat);
+      w.position.set(x, sy * (W / 2 - tw * 0.3), z); h.position.copy(w.position);
+      g.add(w, h);
+    }
+  }
+  // 로보택시 지붕 센서 (뚜껑과 같이 사라짐)
+  const sensorMat = new Mat({ color: 0x2a3444, transparent: false, ...extra });
+  if (fr.R.sensor) {
+    const [x0, z1] = fr.toCar(fr.R.sensor[0], fr.R.sensor[1]), [x1, z0] = fr.toCar(fr.R.sensor[2], fr.R.sensor[3]);
+    const sensor = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.34 * W, z1 - z0 + 0.04 * H), sensorMat);
+    sensor.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2 - 0.02 * H);
+    lidGroup.add(sensor);
+  }
+  // 브레이크등: 멈출 때만 빨갛게 (평소엔 그린 그림이 보이게 투명)
+  const brakeMat = new THREE.MeshBasicMaterial({ color: 0xff2222, transparent: true, opacity: 0, depthWrite: false });
+  const zb = fr.zTop - 0.53 * (fr.zTop - zBot);
+  const brake = new THREE.Mesh(new THREE.PlaneGeometry(0.045 * H, 0.84 * W), brakeMat);
+  brake.position.set(backXAt(fr, zb) - 0.004 * fr.L, 0, zb);
+  brake.rotation.y = -Math.PI / 2;
+  g.add(brake);
+
+  let open = -1;
+  function setOpen(t) {
+    t = Math.min(1, Math.max(0, t));
+    if (Math.abs(t - open) < 0.005) return;
+    open = t;
+    lidGroup.visible = t < 0.98;
+    for (const mt of [...lidMats, sensorMat]) {
+      mt.opacity = 1 - t;
+      const tr = t > 0.005;
+      if (mt.transparent !== tr) { mt.transparent = tr; mt.depthWrite = !tr; mt.needsUpdate = true; }
+    }
+    floor.visible = inner.visible = t > 0.005;
+  }
+  setOpen(0);
+  g.userData = {
+    drawn: true, vehicle: painted.vehicle, setOpen, get open() { return open; },
+    brakeMat, setBrake: (on) => { brakeMat.opacity = on ? 0.85 : 0; },
+    shape: { L: fr.L, W, H, zBelt },
+  };
+  return g;
 }

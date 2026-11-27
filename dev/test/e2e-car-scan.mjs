@@ -1,37 +1,71 @@
-// 나만의 차: 도안 스캔 → 미리보기 → AR 주행 → 가까이 가면 지붕 열림 (가짜 ARCore, 전시 디오라마)
-//  1) 칸마다 다른 색으로 칠한 도안을 비스듬히·누런 조명으로 찍은 사진을 만들고, 앱이 표식 4개를 찾아 펴는지
-//  2) 편 그림의 칸 색이 칠한 색과 맞는지 (조명 보정 포함)
-//  3) 미리보기(3D 차, 안쪽 보기) → [이 차로 달리기] → AR에서 차가 달림
-//  4) 지붕 열리는 거리를 크게/작게 바꿔 가며 지붕이 열리고 닫히는지
-// 시작 화면 제목·버튼, 스캔 화면도 확인. 화면 사진: test/car-*.png (또는 인자로 준 폴더)
-// 먼저: node test/xr-mock/make-frames-dio.mjs && node build.mjs, test/xr-mock을 dist/xr-mock으로 복사, dist/를 8765 포트로
+// 나만의 차: 도안 두 장 스캔 → 미리보기 → AR 주행 → 가까이 가면 지붕 열림 (가짜 ARCore, 전시 디오라마)
+//  1) 실제 도안 PDF(로보택시 ①·②)를 그림으로 바꿔 아이가 꾸민 것처럼 칠하고(옆면 빨강, 실내 파랑, 이름 쓰기, 분홍 지붕 ✓),
+//     비스듬히·누런 조명으로 찍은 사진을 만든다
+//  2) 앱이 두 장을 찾아 펴고: 차 종류, 고른 지붕 색, 이름, 칠한 색, 창문(유리색)을 확인
+//  3) 미리보기(3D, 안쪽 보기) → [이 차로 달리기] → AR에서 차가 달림 → 지붕 열리는 거리 안/밖에서 열림/닫힘
+//  4) 다른 차 도안을 비추면 그 차로 새로 시작
+// 화면 사진: test/car-*.png (또는 인자로 준 폴더)
+// 먼저: node test/xr-mock/make-frames-dio.mjs && node build.mjs, test/xr-mock을 dist/xr-mock으로 복사, dist/를 8765 포트로 (pdftoppm 필요)
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, mkdtempSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MARKERS, truthLoop } from './diorama-scene.mjs';
-import { carSheetSVG } from '../tools/car-sheet-svg.mjs';
-import { REGIONS, SHEET } from '../src/car-template.js';
+import { CAR_TEMPLATES } from '../src/car-templates.js';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const mock = readFileSync(new URL('./xr-mock/mock-webxr.js', import.meta.url), 'utf8');
 const out = process.argv[2] || new URL('.', import.meta.url).pathname;
+const PDF = fileURLToPath(new URL('../../RAIM-AR-차도안.pdf', import.meta.url));
 let fails = 0;
 const ok = (c, msg) => { console.log(`  ${c ? '통과' : '실패'} ${msg}`); if (!c) fails++; };
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 
-// 1) 색칠한 도안 사진 만들기: 책상 위에 비스듬히 놓고, 누런 조명
-const FILLS = { side: '#e53935', front: '#fdd835', back: '#8e24aa', top: '#1e88e5', interior: '#43a047' };
-const font = resolve('node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2');
-const shot = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
-await shot.setContent(`<!doctype html><style>@font-face{font-family:"Pretendard Variable";src:url("file://${font}")}
-  body{margin:0;background:#7b6a55;width:1600px;height:1200px;overflow:hidden;perspective:1500px}
-  .p{position:absolute;left:250px;top:250px;width:1100px;height:${1100 * SHEET.h / SHEET.w}px;transform:rotateX(28deg) rotateZ(-7deg) rotateY(-10deg);box-shadow:0 20px 60px rgba(0,0,0,.4)}
-  .p svg{width:100%;height:100%;display:block}
-  .tint{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%,rgba(255,200,120,.28),rgba(80,60,20,.25));mix-blend-mode:multiply;pointer-events:none}</style>
-  <div class="p">${carSheetSVG({ fills: FILLS })}</div><div class="tint"></div>`);
-await shot.evaluate(() => document.fonts.ready);
-const photo = await shot.screenshot({ type: 'png' });
-await shot.screenshot({ path: `${out}/car-0-photo.png` });
-await shot.close();
+// 1) 도안 쪽 그림 (200dpi) → 꾸미기 → 비스듬히 찍은 사진
+const tmp = mkdtempSync(join(tmpdir(), 'carscan-'));
+const pagePng = (n) => { execFileSync('pdftoppm', ['-r', '200', '-f', String(n), '-l', String(n), '-png', '-singlefile', PDF, join(tmp, `p${n}`)]); return readFileSync(join(tmp, `p${n}.png`)).toString('base64'); };
+const T = CAR_TEMPLATES.taxi;
+async function photo(b64, decorate, file) {
+  const p = await browser.newPage({ viewport: { width: 1200, height: 1500 } });
+  await p.setContent('<body style="margin:0;background:#7b6a55"></body>');
+  const url = await p.evaluate(async ({ b64, decorate, T }) => {
+    const bm = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height;
+    const ctx = cv.getContext('2d'); ctx.drawImage(bm, 0, 0);
+    const k = bm.width / 210; // px/mm
+    ctx.scale(k, k);
+    new Function('ctx', 'T', decorate)(ctx, T);
+    return cv.toDataURL('image/png');
+  }, { b64, decorate, T });
+  await p.setContent(`<style>body{margin:0;background:#7b6a55;width:1200px;height:1500px;overflow:hidden;perspective:1600px}
+    img{position:absolute;left:190px;top:170px;width:820px;transform:rotateX(18deg) rotateZ(5deg) rotateY(8deg);box-shadow:0 20px 60px rgba(0,0,0,.4)}
+    .tint{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%,rgba(255,200,120,.25),rgba(80,60,20,.22));mix-blend-mode:multiply}</style>
+    <img src="${url}"><div class="tint"></div>`);
+  await p.waitForTimeout(300);
+  const buf = await p.screenshot({ type: 'png' });
+  await p.screenshot({ path: `${out}/${file}` });
+  await p.close();
+  return buf.toString('base64');
+}
+// ① 겉모습: 옆면 아래쪽 빨강 칠, 이름 '하늘 택시'
+const R0 = T.ext.sides[0], L0 = T.ext.sides[1];
+const RED = [214, 40, 40];
+const decoExt = `
+  ctx.fillStyle = 'rgb(${RED})';
+  for (const s of T.ext.sides) { const y = s.window[0][3] + 13; ctx.beginPath(); ctx.ellipse((s.bbox[0] + s.bbox[2]) / 2 + 30, y, 10, 4.5, 0, 0, 7); ctx.fill(); }
+  ctx.fillStyle = '#111'; ctx.font = 'bold 13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('하늘 택시', 105, 47.5);`;
+// ② 앞·뒤와 실내: 분홍 지붕 칸에 ✓, 실내에 파란 상자
+const pink = T.int.swatches.findIndex((s) => s.color === '#ff9fb2');
+const BLUE = [40, 90, 220];
+const decoInt = `
+  const b = T.int.swatches[${pink}].box;
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 0.9; ctx.beginPath(); ctx.moveTo(b[0] + 0.8, b[1] + 2.6); ctx.lineTo(b[0] + 2.2, b[3] - 0.8); ctx.lineTo(b[2] - 0.6, b[1] + 0.6); ctx.stroke();
+  ctx.fillStyle = 'rgb(${BLUE})'; const I = T.int.interior; ctx.fillRect(I[0] + 40, I[1] + 20, 50, 30);`;
+const photoExt = await photo(pagePng(3), decoExt, 'car-0-photo-ext.png');
+const photoInt = await photo(pagePng(4), decoInt, 'car-0-photo-int.png');
+const photoTruck = await photo(pagePng(5), '', 'car-0-photo-truck.png');
 
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
@@ -42,49 +76,59 @@ await page.reload();
 await page.waitForFunction(() => !document.getElementById('btnStart').disabled);
 
 console.log('[시작 화면]');
-const title = await page.evaluate(() => { const h = document.querySelector('.start-title'), b = document.getElementById('btnStart'); const hr = h.getBoundingClientRect(), br = b.getBoundingClientRect(); return { text: h.textContent, above: hr.bottom <= br.top + 1, doc: document.title }; });
-ok(title.text === '도로 위의 상상' && title.above, `제목 '${title.text}'이 [시작하기] 위에`);
-ok(title.doc === '도로 위의 상상', `페이지 제목 '${title.doc}'`);
+const title = await page.evaluate(() => { const h = document.querySelector('.start-title'), b = document.getElementById('btnStart'); return { text: h.textContent, above: h.getBoundingClientRect().bottom <= b.getBoundingClientRect().top + 1, doc: document.title }; });
+ok(title.text === '도로 위의 상상' && title.above && title.doc === '도로 위의 상상', `제목 '${title.text}'이 [시작하기] 위에, 페이지 제목 '${title.doc}'`);
 await page.screenshot({ path: `${out}/car-1-start.png` });
 
-console.log('[스캔 화면]');
+console.log('[스캔: 두 장]');
 await page.click('#btnStart');
 await page.waitForFunction(() => !document.getElementById('scan').hidden);
-await page.waitForTimeout(800);
-const guide = await page.textContent('#scanGuide');
-ok(guide.length > 3, `스캔 안내: ${guide}`);
-await page.screenshot({ path: `${out}/car-2-scan.png` });
-
-console.log('[사진에서 도안 펴기]');
-const res = await page.evaluate(async (b64) => {
+await page.waitForTimeout(600);
+const scanPhoto = (b64) => page.evaluate(async (b64) => {
   const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
   const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
   const ctx = cv.getContext('2d'); ctx.drawImage(bmp, 0, 0);
   return window.__raimAR.carFlow().scanImageData(ctx.getImageData(0, 0, cv.width, cv.height));
-}, photo.toString('base64'));
-ok(res.ok && res.found.length === 4, `표식 ${res.found && res.found.join(',')} 찾음 · 귀퉁이 오차 ${res.err && res.err.toFixed(2)}px`);
-await page.waitForFunction(() => !document.getElementById('preview').hidden);
-// 칸 가운데 색 = 칠한 색? (펴진 그림에서)
-const cols = await page.evaluate(({ regions, sheet }) => {
-  const cv = window.__raimAR.carFlow().canvas, ctx = cv.getContext('2d'), k = cv.width / sheet.w;
-  const at = (x, y) => { const d = ctx.getImageData(Math.round(x * k) - 3, Math.round(y * k) - 3, 7, 7).data; const s = [0, 0, 0]; for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) s[j] += d[i + j]; return s.map((v) => Math.round(v / 49)); };
-  const o = {};
-  // 칸 안 빈 자리 (안내 점선·좌석을 피한 곳)
-  const spots = { side: [0.12, 0.3], front: [0.5, 0.15], back: [0.5, 0.9], top: [0.1, 0.2], interior: [0.12, 0.5] };
-  for (const [k2, [a, b]] of Object.entries(spots)) { const r = regions[k2]; o[k2] = at(r.x + a * r.w, r.y + (1 - b) * r.h); }
-  o.paper = at(150, 100); // 칸 밖 흰 종이
-  return o;
-}, { regions: REGIONS, sheet: SHEET });
-const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-for (const [k, want] of Object.entries(FILLS)) {
-  const got = cols[k], w = hex(want), d = Math.hypot(...got.map((v, i) => v - w[i]));
-  ok(d < 90, `${REGIONS[k].label}: 칠한 색 ${want} → 펴진 그림 rgb(${got.join(',')}) (차이 ${d.toFixed(0)})`);
-}
-ok(cols.paper.every((v) => v > 215), `흰 종이는 흰색으로 보정 rgb(${cols.paper.join(',')})`);
-await page.waitForTimeout(1200);
+}, b64);
+// 다른 차(배송 트럭) 한 장을 먼저 → 로보택시를 찍으면 로보택시로 새로 시작
+let r = await scanPhoto(photoTruck);
+ok(r.ok && r.vehicle === 'truck' && r.page === 'ext', `배송 트럭 ① 찾음 (표식 ${r.found})`);
+r = await scanPhoto(photoInt);
+ok(r.ok && r.vehicle === 'taxi' && r.page === 'int', `로보택시 ② 찾음 (표식 ${r.found}, 귀퉁이 오차 ${r.err && r.err.toFixed(2)}px) → 로보택시로 새로 시작`);
+const steps = await page.textContent('#scanSteps');
+ok(/✓ ② 앞·뒤와 실내/.test(steps) && !/✓ ①/.test(steps) && /로보택시/.test(steps), `진행 표시: ${steps}`);
+ok(/① 겉모습 장을 비춰/.test(await page.textContent('#scanGuide')), `안내: ${await page.textContent('#scanGuide')}`);
+await page.screenshot({ path: `${out}/car-2-scan.png` });
+r = await scanPhoto(photoExt);
+ok(r.ok && r.vehicle === 'taxi' && r.page === 'ext', `로보택시 ① 찾음 (표식 ${r.found}, 귀퉁이 오차 ${r.err && r.err.toFixed(2)}px)`);
+await page.waitForFunction(() => !document.getElementById('preview').hidden, null, { timeout: 15000 });
+
+console.log('[칠한 그림 → 차 그림]');
+const info = await page.evaluate(({ R0, L0, I }) => {
+  const p = window.__raimAR.carFlow().painted;
+  const at = (cv, x, y) => { const d = cv.getContext('2d').getImageData(Math.round(x * 4) - 2, Math.round(y * 4) - 2, 5, 5).data; const s = [0, 0, 0]; for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) s[j] += d[i + j]; return s.map((v) => Math.round(v / 25)); };
+  const red = [R0, L0].map((s) => at(p.ext, (s.bbox[0] + s.bbox[2]) / 2 + 30, s.window[0][3] + 13));
+  const glass = at(p.ext, (R0.window[0][0] + R0.pillar[0][0]) / 2 + 8, (R0.window[0][1] + R0.window[0][3]) / 2);
+  const roof = at(p.ext, 2.5, 145);
+  const blue = at(p.int, I[0] + 65, I[1] + 35);
+  // 이름 자리: 가운데 줄에 어두운 글씨 점이 있나
+  const sl = R0.nameSlot, d = p.ext.getContext('2d').getImageData(sl[0] * 4, sl[1] * 4, (sl[2] - sl[0]) * 4, (sl[3] - sl[1]) * 4).data;
+  let dark = 0; for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] < 250) dark++;
+  return { vehicle: p.vehicle, roofColor: p.roof, roofPicked: p.roofPicked, name: p.name, red, glass, roof, blue, nameDark: dark };
+}, { R0, L0, I: T.int.interior });
+ok(info.vehicle === 'taxi', `차 종류 ${info.vehicle}`);
+ok(info.roofPicked && info.roofColor === '#ff9fb2', `✓한 지붕 색 ${info.roofColor} (분홍)`);
+ok(info.name && info.nameDark > 200, `이름 글씨를 옆면 이름 자리에 넣음 (어두운 점 ${info.nameDark})`);
+const near = (a, b, t) => Math.hypot(...a.map((v, i) => v - b[i])) < t;
+info.red.forEach((c, i) => ok(near(c, RED, 95), `${i ? '왼쪽' : '오른쪽'} 옆면 빨강 칠 → rgb(${c})`));
+ok(near(info.glass, [31, 51, 73], 30), `창문 → 유리색 rgb(${info.glass})`);
+ok(near(info.roof, [255, 159, 178], 10), `지붕 색 조각 rgb(${info.roof})`);
+ok(near(info.blue, BLUE, 95), `실내 파랑 칠 → rgb(${info.blue})`);
+ok(/로보택시/.test(await page.textContent('#previewTitle')), `미리보기 제목: ${await page.textContent('#previewTitle')}`);
+await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/car-3-preview.png` });
 await page.click('#btnInside');
-await page.waitForTimeout(2000);
+await page.waitForTimeout(2200);
 const pvOpen = await page.evaluate(() => window.__raimAR.carFlow().previewOpen);
 ok(pvOpen > 0.9, `미리보기 [안쪽 보기] → 지붕 열림 ${pvOpen.toFixed(2)}`);
 await page.screenshot({ path: `${out}/car-4-preview-inside.png` });
@@ -99,26 +143,25 @@ const s0 = s.s;
 await page.waitForTimeout(2500);
 s = await st();
 ok(s.s > s0 + 1, `차가 달림 (${(s.s - s0).toFixed(1)}cm)`);
-const usesScan = await page.evaluate(() => !!window.__raimAR.carFlow().canvas);
-ok(usesScan, '스캔한 도안으로 만든 차');
+ok(await page.evaluate(() => window.__raimAR.carVehicle()) === 'taxi', '스캔한 로보택시로 달림');
 let pk = await page.evaluate(() => window.__raimAR.peek());
-ok(pk.dist > 0 && pk.near > 0 && pk.far > pk.near, `카메라–차 거리 ${pk.dist && pk.dist.toFixed(2)}m · 지붕 열림 ${pk.near.toFixed(2)}~${pk.far.toFixed(2)}m · 지금 ${pk.open.toFixed(2)}`);
+ok(pk.dist > 0 && pk.far > pk.near, `카메라–차 거리 ${pk.dist && pk.dist.toFixed(2)}m · 지붕 열림 ${pk.near.toFixed(2)}~${pk.far.toFixed(2)}m · 지금 ${pk.open.toFixed(2)}`);
 // 지붕 열리는 거리를 크게(5~6m) → 지금 거리에서 열림, 아주 작게 → 닫힘 (설정 car.peekNear·peekFar)
 await page.evaluate(() => window.__raimAR.setPeekRange(5, 6));
 await page.waitForTimeout(1500);
 pk = await page.evaluate(() => window.__raimAR.peek());
 ok(pk.open > 0.95, `가까이(열림 거리 안) → 지붕 열림 ${pk.open.toFixed(2)}`);
-await page.screenshot({ path: `${out}/car-5-ar-open.png` });
 await page.evaluate(() => window.__raimAR.setPeekRange(0.01, 0.02));
 await page.waitForTimeout(1500);
 pk = await page.evaluate(() => window.__raimAR.peek());
 ok(pk.open < 0.05, `멀리 → 지붕 닫힘 ${pk.open.toFixed(2)}`);
-await page.screenshot({ path: `${out}/car-6-ar-closed.png` });
 
 console.log('[끝내기 → 처음 화면, 다음 관람객은 새 도안]');
 await page.click('#btnExit');
 await page.waitForFunction(() => !document.getElementById('start').hidden);
-ok(!(await page.evaluate(() => window.__raimAR.carFlow().canvas)), '끝내면 스캔한 도안을 비움');
+ok(!(await page.evaluate(() => window.__raimAR.carFlow().painted)), '끝내면 스캔한 도안을 비움');
+await page.waitForTimeout(500);
+ok(await page.evaluate(() => window.__raimAR.carVehicle()) === 'taxi', '기본 차(빈 로보택시)로 돌아감');
 ok(errs.length === 0, `페이지 오류 없음 ${errs.slice(0, 3).join(' | ')}`);
 await browser.close();
 console.log(fails ? `실패 ${fails}개` : '모두 통과');

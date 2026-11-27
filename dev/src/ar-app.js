@@ -13,9 +13,10 @@ import {
   smoothPath, buildPath, carPoseAt, CarController, BarricadeTracker, blocksPath,
 } from './logic.js';
 import { loadConfig, storeConfig, loadShared, downloadShared, sharedLabel } from './store.js';
-import { makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
-import { makeDrawnCar, defaultCarCanvas, canvasTexture } from './car-model.js';
-import { createCarFlow } from './car-flow.js';
+import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
+import { makeDrawnCar } from './car-model.js';
+import { paintCar } from './car-paint.js';
+import { createCarFlow, DEFAULT_VEHICLE } from './car-flow.js';
 import { isSheetMap } from './config.js';
 import {
   intrinsicsFromProjection, worldFromCv, levelEstimate, AlignmentFuser, roadToWorldMatrix, roadToCv, rayToRoad, worldToRoad,
@@ -76,6 +77,7 @@ const renderer = new THREE.WebGLRenderer({ canvas: $('three'), alpha: true, anti
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.xr.enabled = true;
+renderer.localClippingEnabled = true; // 나만의 차: 지붕(뚜껑)과 아래를 벨트 선에서 나눠 그림
 renderer.xr.setReferenceSpaceType('local');
 // AR 화면 해상도: 태블릿 화면 그대로(2560×1600 등)면 GPU가 카메라 영상 합성과 겹쳐 버벅인다. 차·경로는 0.75배로도 충분히 또렷함
 // (?fb=1 로 원래 해상도 시험)
@@ -117,18 +119,21 @@ const clearance = () => clearanceOf(cfg);
 const markerVis = new Map();
 // 나만의 차: 관람객이 스캔한 도안(없으면 기본 그림)을 입힌 차. 태블릿이 차에 가까이 가면 지붕이 사라지고 실내가 보임
 let carFlow = null; // 스캔·미리보기 화면 (아래에서 만듦)
-let defaultCanvas = null, defaultColor = null;
+let defaultPainted = null; // 스캔 없이 달릴 때: 빈 도안 그림의 기본 차 (처음에 불러 둠)
 let peek = 0; // 지붕 열림 0~1 (부드럽게 따라감)
 function makeArCar() {
-  let cv = carFlow && carFlow.canvas;
-  if (!cv) {
-    if (!defaultCanvas || defaultColor !== cfg.car.color) { defaultColor = cfg.car.color; defaultCanvas = defaultCarCanvas(cfg.car.color); }
-    cv = defaultCanvas;
+  const painted = (carFlow && carFlow.painted) || defaultPainted;
+  let car;
+  if (painted) car = makeDrawnCar(carDims(), painted, { lite: LITE });
+  else { // 기본 그림을 아직 못 불러왔을 때만: 예전 상자 차
+    car = makeCar(carDims());
+    const bm = car.userData.brakeMat;
+    car.userData = { brakeMat: bm, setOpen: () => {}, open: 0, setBrake: (on) => bm.color.set(on ? 0xff2222 : 0x551111) };
   }
-  const car = makeDrawnCar(carDims(), canvasTexture(cv), { lite: LITE });
   car.userData.setOpen(peek);
   return car;
 }
+paintCar(DEFAULT_VEHICLE).then((p) => { defaultPainted = p; if (!(carFlow && carFlow.painted)) replaceCar(); }).catch(() => { /* 기본 그림 없음: 상자 차 */ });
 function replaceCar() {
   const vis = carObj ? carObj.visible : false;
   disposeObject(carObj);
@@ -410,7 +415,7 @@ function onEnd() {
   $('ui').hidden = true;
   $('start').hidden = false;
   // 다음 관람객은 새 도안으로 (기본 차로 돌려 둠)
-  if (carFlow) carFlow.reset();
+  if (carFlow) { carFlow.reset(); replaceCar(); }
   // 방금 끝난 AR을 ARCore가 정리할 시간 (바로 누르면 요청이 멈추거나 거절됨)
   endedAt = performance.now();
   setStartButton('cooldown', '잠시만요…');
@@ -1001,7 +1006,7 @@ function updateHud(t) {
 
 // ---------- 버튼 ----------
 // 관람객: [시작하기] → 도안 스캔 → 미리보기 → [이 차로 달리기]. (시험은 window.__raimSkipScan이면 바로 AR)
-carFlow = createCarFlow({ getAR: () => AR, carColor: () => cfg.car.color, onRun: () => startAR(), onBack: () => {} });
+carFlow = createCarFlow({ getAR: () => AR, onRun: () => startAR(), onBack: () => {} });
 $('btnStart').onclick = () => (window.__raimSkipScan ? startAR() : carFlow.open());
 $('btnExit').onclick = () => { if (session) session.end(); };
 $('btnClear').onclick = () => { barTracker.clear(); barricade = null; flash('바리케이드를 해제했어요', 1500); };
@@ -1280,6 +1285,7 @@ window.__raimAR = {
   detections: () => detCount,
   injectFrameError: () => { injectError = true; }, // 시험: 다음 프레임에서 오류
   carFlow: () => carFlow,
+  carVehicle: () => (carObj && carObj.userData.vehicle) || null,
   peek: () => ({ open: carObj.userData.open, dist: lastPeekDist, ...peekRange() }),
   setPeekRange: (near, far) => { cfg.car.peekNear = near; cfg.car.peekFar = far; }, // 시험: 지붕 열리는 거리(m), 저장 안 함
   carMaterials: () => { const a = []; carObj.traverse((o) => { if (o.isMesh) a.push(o.material.type); }); return a; },
