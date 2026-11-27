@@ -747,10 +747,6 @@ loadShared(cfg).then((r) => {
   if (AR) rebuildWorld(false);
   $('sharedMsg').textContent = `전시 설정(${sharedLabel(r.shared)} 저장)을 불러왔어요 · 마커 ${cfg.roadMarkers.length}개`;
 });
-// AR(WebXR·ARCore)이 되는 기기면 AR 버전을 먼저 권한다
-try {
-  if (navigator.xr) navigator.xr.isSessionSupported('immersive-ar').then((ok) => { if (ok) $('btnAR').hidden = false; }).catch(() => {});
-} catch (e) { /* 무시 */ }
 // 숨은 오류가 있으면 화면에 보이게 (현장에서 원인 찾기용)
 window.addEventListener('error', (e) => flash(`오류: ${e.message || e}`, 10000, 'warn'));
 // 테스트용 진입점

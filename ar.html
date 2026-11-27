@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#00448B">
-<title>AR 자율주행 체험</title>
+<title>자율주행 AR</title>
 <link rel="icon" href="data:,">
 <link rel="preload" href="assets/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
@@ -42,7 +42,7 @@ h1, h2, h3 { color: var(--c-301); margin: 0; line-height: 1.25; letter-spacing: 
 [hidden] { display: none !important; }
 /* 한국어 조판 규칙 (RAIM 공통) */
 :lang(ko) { word-break: keep-all; overflow-wrap: anywhere; }
-:lang(ko) :is(h1, h2, h3, h4, .title-chip, .guide, .step-text b) { text-wrap: pretty; }
+:lang(ko) :is(h1, h2, h3, h4, .title-chip, .guide) { text-wrap: pretty; }
 
 /* 관람객 / 관리자 화면 나누기: 관리자 모드(암호)일 때만 body.admin */
 body:not(.admin) .admin-only { display: none !important; }
@@ -99,20 +99,15 @@ body.admin .visitor-only { display: none !important; }
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .start-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 0; }
-.start-card { width: min(920px, 100%); padding: 34px 44px 32px; display: flex; flex-direction: column; align-items: center; gap: 18px; text-align: center; }
-.start-card .hero { width: 100%; max-height: 190px; object-fit: contain; filter: drop-shadow(0 22px 24px rgba(40,46,56,.28)); margin: -6px 0 4px; }
-.start-card h1 { font-size: 2.4rem; font-weight: 750; }
-.start-card .lead { margin: 0; font-size: 1.15rem; line-height: 1.65; color: var(--fg-2); max-width: 680px; }
-.steps { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; width: 100%; }
-.step-card { display: flex; gap: 12px; align-items: center; text-align: left; padding: 14px 16px; border-radius: 12px; background: var(--inner-bg); border: 1px solid var(--inner-edge); min-height: 84px; }
-.step-card .dot { width: 34px; height: 34px; flex-shrink: 0; border-radius: 50%; display: grid; place-items: center; background: var(--c-2985); color: #fff; font-weight: 750; }
-.step-text { font-size: 1rem; line-height: 1.45; color: var(--fg); }
-.step-text b { display: block; color: var(--c-301); font-weight: 700; margin-bottom: 2px; }
-.step-card img { width: 56px; height: 48px; object-fit: contain; margin-left: auto; flex-shrink: 0; }
-/* 관리자 모드 시작 화면: 관람객 안내는 줄이고 관리자 카드를 함께 보이게 */
-body.admin .start-card :is(.hero, .lead, .steps) { display: none; }
-body.admin .start-card { padding: 22px 30px; gap: 12px; }
-body.admin .start-card h1 { font-size: 1.8rem; }
+/* 관람객 시작: 큰 버튼 하나 (누르면 바로 AR) */
+.start-solo { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.start-btn {
+  min-height: 112px; min-width: 340px; padding: 24px 72px; border-radius: 999px; font-size: 2.2rem; font-weight: 750; letter-spacing: -0.02em;
+  box-shadow: 0 0 0 10px rgba(255,255,255,.55), 0 0 40px 8px rgba(0,191,223,.35), 0 18px 40px rgba(0,40,90,.25);
+}
+.start-btn:disabled { opacity: .55; }
+.start-msg { text-align: center; }
+body.admin .start-btn { min-height: 76px; min-width: 240px; padding: 14px 48px; font-size: 1.5rem; }
 .btn.round svg { width: 24px; height: 24px; }
 .start-msg { margin: 0; min-height: 1.4em; font-weight: 600; color: var(--warn); white-space: pre-line; }
 .start-msg.ok { color: #0f8f96; }
@@ -189,11 +184,7 @@ body.admin .start-card h1 { font-size: 1.8rem; }
 @media (orientation: portrait) and (max-width: 599px) {
   :root { --touch: 42px; }
   .start-screen { padding: 12px 14px; }
-  .start-card { padding: 22px 18px; gap: 12px; }
-  .start-card h1 { font-size: 1.6rem; }
-  .start-card .lead { font-size: .98rem; }
-  .steps { grid-template-columns: 1fr; gap: 8px; }
-  .step-card { min-height: 0; padding: 10px 12px; }
+  .start-btn { min-height: 88px; min-width: 240px; padding: 18px 48px; font-size: 1.8rem; }
   .btn.xl { min-height: 56px; padding: 10px 30px; font-size: 1.12rem; }
   .guide { top: 64px; max-width: calc(100vw - 24px); font-size: .98rem; padding: 10px 16px; border-radius: 16px; width: auto; }
   .hud-cards { gap: 6px; }
@@ -237,27 +228,17 @@ body.admin .start-card h1 { font-size: 1.8rem; }
 <div id="start" class="start-screen" lang="ko">
   <div class="room-bg"></div>
   <header class="topbar">
-    <span class="title-chip">AR 자율주행 체험</span>
+    <span></span>
     <div class="topbar-right">
       <span class="admin-badge admin-only">관리자 모드</span>
       <button class="btn ghost round" id="btnGear" aria-label="설정 (관리자)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg></button>
     </div>
   </header>
   <main class="start-main">
-    <section class="start-card glass">
-      <img class="hero" src="assets/diorama.webp" alt="자율주행 디오라마">
-      <div>
-        <p class="eyebrow">RAIM · 자율주행 디오라마</p>
-        <h1>AR로 자율주행차를 만나 보세요</h1>
-      </div>
-      <p class="lead">태블릿으로 디오라마를 비추면 도로 위에 자율주행차가 나타나 스스로 달려요. 차가 무엇을 보고(인식), 어떻게 생각하고(판단), 어떻게 움직이는지(제어) 화면에서 함께 볼 수 있어요.</p>
-      <ol class="steps">
-        <li class="step-card"><span class="dot">1</span><span class="step-text"><b>AR 시작</b>아래 버튼을 누르고 카메라를 허용해요</span></li>
-        <li class="step-card"><span class="dot">2</span><span class="step-text"><b>표식 비추기</b>디오라마 가장자리의 검은 사각형 표식을 비춰요</span></li>
-        <li class="step-card"><span class="dot">3</span><span class="step-text"><b>바리케이드 세우기</b>도로를 막으면 차가 알아보고 멈춰요</span><img src="assets/diorama-obstacle.webp" alt=""></li>
-      </ol>
-      <button class="btn primary xl" id="btnStart" disabled>AR 시작</button>
-      <p class="start-msg" id="startMsg" aria-live="polite">확인 중…</p>
+    <!-- 관람객: 버튼 하나. 누르면 바로 AR 시작 -->
+    <section class="start-solo">
+      <button class="btn primary start-btn" id="btnStart" disabled>시작하기</button>
+      <p class="start-msg" id="startMsg" aria-live="polite"></p>
     </section>
     <section class="admin-card glass admin-only" id="adminStart">
       <div class="row" style="justify-content:space-between">
