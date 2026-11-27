@@ -14,7 +14,7 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
 | `RAIM-AR-경로카드.pdf` | AR 경로 기록용 경로 카드(마커 20, 5cm) 2장 |
 | `diorama.json` | (올리면 생김) 전시 설정: 모든 기기가 함께 쓰는 마커 지도·경로·차 설정. 아래 '여러 태블릿이 같은 경로 쓰기' 참고 |
 | `RAIM-AR-테스트시트.pdf` | 1쪽: A4 도로 시트(도로 마커 0~5), 2쪽: 미니 바리케이드 접이식 도안(마커 10·11) |
-| `raim-ar-marker-src.zip` | 소스 코드, 빌드·시험 스크립트 |
+| `dev/` | 소스 코드, 빌드·시험 스크립트 (아래 '7. 개발'). 위의 `index.html`·`ar.html`은 여기서 빌드한 결과예요 |
 
 ## 1. 태블릿에서 여는 방법 (HTTPS 필요)
 
@@ -184,15 +184,20 @@ AR 세션, 카메라 영상 접근(마커·바리케이드 인식), 깊이(건�
 
 ## 7. 개발
 
+소스는 `dev/` 폴더에 있어요. 명령은 모두 `dev/`에서 실행해요.
+
 ```
+cd dev
 npm install
-node build.mjs                 # dist/index.html 생성
+npm run build                  # = node build.mjs → dist/index.html, dist/ar.html 생성 (시험용)
+npm run publish-site           # = node build.mjs --publish → 위 결과를 저장소 맨 위 index.html·ar.html에도 복사 (사이트 반영)
+npm test                       # 단위·시뮬레이션 시험 묶음 (테스트 시트 SVG를 먼저 만들고 차례로 실행)
 node tools/make-sheet.mjs      # 테스트 시트 SVG 생성 (rsvg-convert로 PDF 변환)
 node tools/make-markers.mjs out && node tools/svg-to-pdf.cjs out 마커.pdf          # 도로 마커 18개(8cm, ROAD_MM로 변경) + 바리케이드 마커 PDF
 node tools/make-markers.mjs out2 16,17,18,19 bar=0 && node tools/svg-to-pdf.cjs out2 추가.pdf   # 일부 번호만
 node test/pipeline.mjs         # 합성 영상으로 자세·바리케이드 정확도 시험
 node test/logic.mjs            # 정지 판단·추적 로직 시험
-node test/mapping.mjs          # 2m 가상 디오라마로 마커 지도 정확도 시험
+node test/mapping.mjs          # 2m 가상 디오라마로 마커 지도 정확도 시험 (먼저 node tools/make-sheet.mjs — pipeline.mjs도 같음)
 node test/lane.mjs             # 2차로 가상 디오라마로 차선 맞추기 시험
 node test/path-jitter.mjs      # 탭 손떨림이 있을 때 차 방향 흔들림 시험
 node test/pose-compare.mjs     # 손에 든 휴대폰으로 마커 1~2개만 볼 때 바닥 기울기 뒤집힘 시험
@@ -211,7 +216,19 @@ node test/xr-mock/make-frames-card.mjs && cp -r test/xr-mock dist/ && node test/
 EDGE=1 COLOR=1 node test/e2e-ar-barricade.mjs   # 마커를 한 변에만 붙였을 때 가운데 바리케이드 (색 인식)
 node tools/make-card.mjs out && node tools/svg-to-pdf.cjs out 경로카드.pdf   # 경로 카드 PDF
 node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 기록 → 차선 맞추기 → 주행 (dist/를 8765 포트로 띄운 뒤)
+node test/e2e-keep.mjs         # 두 버전: 바리케이드 앞에서 [차 +]·[높이 +]를 눌러도 계속 멈춤, 안내 문구 중에도 카드 갱신, GPU 메모리 안 늘어남
+node test/perf-ar.mjs          # AR 버전 화면 스레드 막힘·프레임 수 측정 (REC=1이면 경로 기록 중)
 ```
+
+시험이 만드는 큰 파일(`test/cam.y4m`, `test/xr-mock/*.bin` 등)과 `node_modules/`, `dist/`는 저장소에 올리지 않아요(`dev/.gitignore`).
+
+#### 처리 흐름과 성능
+
+- **AR 버전:** 카메라 영상은 초당 6번, GPU에서 작게 줄여 **기다리지 않고** 읽어요(PBO). 마커 인식·노랑 줄무늬 찾기·경로 기록 중 도로 영상 모으기는
+  **별도 스레드(Web Worker)**에서 해서, 그동안에도 차가 끊기지 않고 그려져요. 계산은 영상을 찍은 순간의 휴대폰 자세로 하니 결과가 몇 프레임 늦게 와도 위치가 어긋나지 않아요.
+  화면 왼쪽 위 `인식 n ms`는 워커가 한 프레임 처리에 쓴 시간이에요. 워커를 못 띄우는 브라우저면 `(화면 스레드)`가 붙고 예전처럼 화면 스레드에서 처리해요.
+- **마커 버전:** 화면은 60~120Hz로 그리지만 카메라는 보통 30fps라, **새 카메라 영상이 왔을 때만** 인식해요(`requestVideoFrameCallback`).
+- 두 버전 모두 **차 −/+·높이 −/+**를 눌러도 추적 중인 바리케이드와 차 위치를 그대로 둬요(지도·경로가 바뀔 때만 새로 시작).
 
 | 파일 | 역할 |
 | --- | --- |
@@ -226,7 +243,8 @@ node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 �
 | `src/barricade-color.js` | 마커 없이 노랑·검정 줄무늬로 바리케이드 찾기 |
 | `src/xr-mapper.js` | AR 지도 만들기: 마커를 하나씩 비춰 ARCore 세계 위치로 지도 만들기 |
 | `src/xr-camera.js` | AR 세션 카메라 영상을 줄여 읽기 (영상 위아래 방향 자동 판단) |
-| `src/store.js`, `src/scene.js` | 두 버전이 함께 쓰는 설정 저장, 자동차 3D 모델 |
+| `src/detect-worker.js`, `src/detect-client.js` | AR 버전: 마커 인식·색 찾기·도로 영상 모으기를 별도 스레드(Web Worker)에서 (못 쓰면 화면 스레드) |
+| `src/store.js`, `src/scene.js`, `src/common.js` | 두 버전이 함께 쓰는 설정 저장, 자동차 3D 모델·GPU 자원 정리, 차 크기·주행·차선 맞추기 설정 계산 |
 | `src/config.js` | 기본 설정 (A4 테스트 시트 기준) |
 
 마커 인식: [js-aruco2](https://github.com/damianofalcioni/js-aruco2) (MIT), 사전 ARUCO_MIP_36h12. 3D: Three.js (MIT).

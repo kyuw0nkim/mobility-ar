@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>RAIM AR 자율주행 · AR 버전</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg:#0d1117; --panel:rgba(13,17,23,.78); --line:rgba(255,255,255,.14); --text:#f2f4f7; --muted:#a8b0bb; --accent:#38d9ff; --hot:#ff453a; --amber:#ffc400; --ok:#3ddc84; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text); font-family:system-ui, -apple-system, "Noto Sans KR", sans-serif; -webkit-user-select:none; user-select:none; }
+  [hidden] { display:none !important; }
+  #three { position:fixed; inset:0; width:100%; height:100%; }
+
+  #start { position:fixed; inset:0; overflow:auto; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px 16px; text-align:center; }
+  #start h1 { margin:0; font-size:24px; }
+  #start p { margin:0; color:var(--muted); max-width:520px; line-height:1.6; font-size:15px; }
+  #startMsg { color:var(--amber) !important; white-space:pre-line; }
+  #mapInfo { background:#161b22; border:1px solid var(--line); border-radius:12px; padding:10px 14px; font-size:14px; line-height:1.6; text-align:left; max-width:520px; width:100%; }
+  .bigbtn { font-size:20px; padding:16px 30px; border-radius:14px; border:0; background:var(--accent); color:#002833; font-weight:700; cursor:pointer; }
+  .bigbtn:disabled { opacity:.4; }
+  a { color:var(--accent); }
+  .smallbtn { font-size:14px; padding:10px 14px; border-radius:10px; border:1px solid var(--line); background:#1f2630; color:var(--text); font-weight:600; }
+
+  /* AR 화면 위 (dom-overlay) */
+  #ui { position:fixed; inset:0; pointer-events:none; }
+  #ui button { pointer-events:auto; }
+  #status { position:absolute; top:30px; left:50%; transform:translateX(-50%); max-width:calc(100vw - 16px); width:max-content; text-align:center; padding:6px 12px; border-radius:14px; background:var(--panel); font-size:14px; font-weight:600; border:1px solid var(--line); }
+  #status.ok { color:var(--ok); } #status.warn { color:var(--amber); }
+  #debug { position:absolute; top:8px; left:8px; font-size:10px; color:var(--muted); background:var(--panel); padding:2px 6px; border-radius:6px; }
+  #bottom { position:absolute; left:8px; right:8px; bottom:8px; display:flex; flex-direction:column; gap:8px; align-items:stretch; }
+  #hud { display:flex; gap:6px; max-width:560px; width:100%; margin-left:auto; }
+  .card { flex:1; min-width:0; padding:6px 8px; border-radius:10px; background:var(--panel); border:1px solid var(--line); }
+  .card.hot { border-color:var(--hot); box-shadow:0 0 0 1px var(--hot) inset; }
+  .card h3 { margin:0 0 2px; font-size:12px; color:var(--muted); }
+  .card div { font-size:12px; font-weight:600; line-height:1.3; min-height:16px; }
+  .gauge { height:5px; border-radius:3px; background:rgba(255,255,255,.12); margin-top:4px; overflow:hidden; }
+  #speedBar { height:100%; width:0; background:var(--ok); }
+  #speedBar.brake { background:var(--amber); } #speedBar.stop { background:var(--hot); }
+  .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; max-width:560px; width:100%; margin-left:auto; }
+  .grid button, #recordBar button { font-size:13px; padding:10px 4px; min-width:0; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-weight:600; }
+  .grid button.off { opacity:.5; }
+  .grid .pair { display:flex; gap:4px; }
+  .grid .pair button { flex:1; }
+  .grid button.primary { background:var(--amber); color:#2b2000; border-color:transparent; }
+  .mapcard { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:12px; display:flex; flex-direction:column; gap:8px; max-width:560px; width:100%; margin-left:auto; pointer-events:auto; }
+  .mapcard h3 { margin:0; font-size:16px; }
+  .mapcard p { margin:0; font-size:13px; color:var(--muted); line-height:1.5; }
+  .mapcard label { font-size:14px; }
+  .mapcard input { width:64px; font-size:15px; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:#010409; color:var(--text); }
+  #mapStat { font-size:13px; font-weight:600; }
+  .mapcard .row { display:flex; gap:6px; }
+  .mapcard .row button { flex:1; font-size:14px; padding:11px 6px; border-radius:10px; border:1px solid var(--line); background:#1f2630; color:var(--text); font-weight:600; }
+  .mapcard .row button.primary { background:var(--accent); color:#002833; border-color:transparent; }
+  .grid.collapsed > :not(#btnMenu):not(#btnClear):not(#btnRealign) { display:none; }
+  #recordBar { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  #recordBar button { flex:1 1 40%; font-size:14px; padding:12px 8px; }
+  #recordBar button.snap { background:var(--ok); color:#002b14; border-color:transparent; }
+  #recordBar button.primary { background:#ff00aa; color:#fff; border-color:transparent; }
+</style>
+</head>
+<body>
+<canvas id="three"></canvas>
+
+<div id="start">
+  <h1>RAIM AR 자율주행 · AR 버전</h1>
+  <p>ARCore가 카메라 움직임을 따라가요. 마커로 디오라마 위치를 한 번 맞추면, 마커가 화면에 없어도 자동차가 계속 달려요.</p>
+  <div id="mapInfo">-</div>
+  <button class="bigbtn" id="btnStart" disabled>AR 시작</button>
+  <p id="startMsg">확인 중…</p>
+  <p id="sharedMsg" style="color:var(--ok)"></p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+    <button class="smallbtn" id="btnExport">전시 설정 내보내기</button>
+    <button class="smallbtn" id="btnShared">전시 설정 다시 불러오기</button>
+  </div>
+  <p>마커 지도는 AR 안의 [지도 만들기]로 만들어요(마커를 하나씩 비추면 돼요). 세부 설정은 <a href="index.html">마커 버전</a>에서 해요. 같은 기기에서는 지도·경로·설정을 함께 써요.</p>
+</div>
+
+<div id="ui" hidden>
+  <canvas id="dbg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+  <div id="debug"></div>
+  <div id="status" class="warn">-</div>
+  <div id="bottom">
+    <div id="hud">
+      <div class="card" id="cardSense"><h3>인식</h3><div id="hudSense">-</div></div>
+      <div class="card" id="cardJudge"><h3>판단</h3><div id="hudJudge">-</div></div>
+      <div class="card" id="cardControl"><h3>제어</h3><div id="hudControl">-</div><div class="gauge"><div id="speedBar"></div></div></div>
+    </div>
+    <div class="grid" id="mainButtons">
+      <button class="primary" id="btnClear">바리케이드 해제</button>
+      <button id="btnRealign">다시 맞추기</button>
+      <button id="btnMenu" aria-expanded="true">메뉴 접기</button>
+      <div class="pair"><button id="carSmaller" aria-label="자동차 작게">차 −</button><button id="carBigger" aria-label="자동차 크게">차 +</button></div>
+      <div class="pair"><button id="speedDown" aria-label="자동차 느리게">속도 −</button><button id="speedUp" aria-label="자동차 빠르게">속도 +</button></div>
+      <div class="pair"><button id="heightDown" aria-label="도로 높이 낮게">높이 −</button><button id="heightUp" aria-label="도로 높이 높게">높이 +</button></div>
+      <button id="btnHeightAuto">높이 자동</button>
+      <button id="btnPath">경로 표시</button>
+      <button id="btnMarkers">인식 표시</button>
+      <button id="btnRecord">경로 기록</button>
+      <button id="btnMapAR">지도 만들기</button>
+      <button id="btnExit">AR 끝내기</button>
+    </div>
+    <div id="mapBar" hidden>
+      <div class="mapcard">
+        <h3>마커 지도 만들기 (AR)</h3>
+        <p>디오라마 테두리의 도로 마커를 <b>하나씩</b> 40~60cm 거리에서 1~2초씩 비추세요. 이웃 마커가 같이 보일 필요 없어요. 마커 위 글씨가 초록 "등록됨"이 되면 다음 마커로.</p>
+        <label>마커 크기(검은 사각형 한 변) <input id="arMapSize" type="number" value="8" min="1" max="50" step="0.1"> cm</label>
+        <div id="mapStat">-</div>
+        <div class="row">
+          <button id="mapReset">다시 시작</button>
+          <button id="mapCancel">취소</button>
+          <button class="primary" id="mapDone">완료·저장</button>
+        </div>
+      </div>
+    </div>
+    <div id="recordBar" hidden>
+      <button id="recUndo">되돌리기</button>
+      <button id="recCancel">취소</button>
+      <button class="snap" id="recCard">카드 위치 찍기</button>
+      <button id="recAuto">자동 경로</button>
+      <button id="recSnap">차선 맞추기</button>
+      <button class="primary" id="recDone">완료·저장</button>
+    </div>
+  </div>
+</div>
+
+<!--ARUCO-->
+<!--APP-->
+</body>
+</html>
