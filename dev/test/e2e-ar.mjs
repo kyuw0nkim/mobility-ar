@@ -14,7 +14,7 @@ async function run(flip) {
   const errs = []; page.on('pageerror', (e) => errs.push(e.message + ' @ ' + (e.stack || '').split('\n').slice(1, 4).join(' | '))); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   await page.addInitScript(`window.__mockFlip = ${flip};\n${mock}`);
   await page.goto('http://localhost:8765/ar.html');
-  await page.evaluate(() => localStorage.clear());
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-aim', '0'); }); // 손가락 탭 흉내 (조준점 끔)
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('btnStart').disabled, null, { timeout: 5000 });
   await page.click('#btnStart');

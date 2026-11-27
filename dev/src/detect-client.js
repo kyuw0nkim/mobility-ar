@@ -1,7 +1,7 @@
 // 마커 인식·색 찾기·도로 영상 모으기를 워커(detect-worker.js)에 맡긴다. 워커를 못 띄우면 예전처럼 이 스레드에서 돌린다.
 import { processFrame } from './detect-worker.js';
 import { RoadMosaic } from './lane.js';
-import { findCenterLoop } from './loop.js';
+import { findCenterLoop, snapToStripe } from './loop.js';
 
 // ar.html 안에 글로 들어 있는 워커 소스 (build.mjs가 넣음)
 const SOURCE_IDS = ['aruco-cv', 'aruco-lib', 'detect-worker'];
@@ -33,6 +33,14 @@ export class DetectClient {
     this.mosaicSpec = spec;
     if (this.worker) this.worker.postMessage({ type: 'mosaic', bounds: spec.bounds, cell: spec.cell, grow: !!spec.grow });
     else this.local.mosaic = new RoadMosaic(spec.bounds, spec.cell, { grow: !!spec.grow });
+  }
+  // 탭한 점 p 근처의 흰 중앙선 위 점 (loop.js snapToStripe). 워커에서 계산
+  async snapPoint(p, opts) {
+    if (!this.worker) {
+      try { return this.local.mosaic ? snapToStripe(this.local.mosaic, p, opts) : { ok: false, reason: 'empty' }; } catch (e) { return { ok: false, reason: 'error' }; }
+    }
+    const r = await this.call({ type: 'snapPoint', p, opts });
+    return r ? r.res : { ok: false, reason: 'error' };
   }
   // 모은 도로 영상에서 한 바퀴 중앙선 찾기 (loop.js). 워커에서 계산
   async findLoop(opts) {
