@@ -13,7 +13,7 @@ const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(mock);
 await page.goto('http://localhost:8765/ar.html');
 // 일부러 엉뚱한 지도(디오라마 마커 번호 30·31)로 시작: 지도 없이도 [지도 만들기]가 되는지
-await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: [{ id: 30, x: 0, y: 0, size: 8, rot: 0 }, { id: 31, x: 100, y: 0, size: 8, rot: 0 }] })); });
+await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-aim', '0'); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: [{ id: 30, x: 0, y: 0, size: 8, rot: 0 }, { id: 31, x: 100, y: 0, size: 8, rot: 0 }] })); });
 await page.reload();
 await page.waitForFunction(() => !document.getElementById('btnStart').disabled);
 await page.click('#btnStart');

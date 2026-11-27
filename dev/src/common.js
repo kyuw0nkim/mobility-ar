@@ -1,4 +1,9 @@
 // 두 버전(마커·AR)이 함께 쓰는 설정 계산과 화면 도우미
+import { isSheetMap } from './config.js';
+
+// 흰 중앙선 기능(탭마다 중앙선에 붙이기, 중앙선 맞추기)을 쓸지: 디오라마 지도일 때만.
+// A4 테스트 시트는 가운데가 가는 점선이라 이 방식이 맞지 않음 (엉뚱한 줄에 붙음). 설정 lane.centerLine: false로 끌 수 있음
+export const centerLineOn = (cfg) => cfg.lane.centerLine !== false && !isSheetMap(cfg.roadMarkers);
 export const roadHeight = (cfg) => cfg.roadHeight || 0;
 export const markerSizeOf = (cfg) => (cfg.roadMarkers[0] ? cfg.roadMarkers[0].size : 3);
 

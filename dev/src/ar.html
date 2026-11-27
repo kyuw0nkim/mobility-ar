@@ -56,7 +56,15 @@
   .mapcard .row button.primary { background:var(--accent); color:#002833; border-color:transparent; }
   .grid.collapsed > :not(#btnMenu):not(#btnClear):not(#btnRealign) { display:none; }
   #recordBar { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
-  #recordBar button { flex:1 1 40%; font-size:14px; padding:12px 8px; }
+  #recordBar button { flex:1 1 30%; font-size:14px; padding:12px 8px; }
+  @media (min-width:700px) { #recordBar button { flex:1 1 18%; } }
+  #recordBar button.off { opacity:.55; }
+  /* 조준점: 화면 가운데를 흰 중앙선에 맞추고 아무 데나 탭 */
+  #aim { position:absolute; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; pointer-events:none; }
+  #aim::before, #aim::after { content:""; position:absolute; background:#ff00aa; box-shadow:0 0 0 1px rgba(255,255,255,.8); }
+  #aim::before { left:31px; top:0; width:2px; height:64px; }
+  #aim::after { top:31px; left:0; height:2px; width:64px; }
+  #aim i { position:absolute; left:24px; top:24px; width:16px; height:16px; border:2px solid #ff00aa; border-radius:50%; background:rgba(255,255,255,.15); }
   #recordBar button.snap { background:var(--ok); color:#002b14; border-color:transparent; }
   #recordBar button.primary { background:#ff00aa; color:#fff; border-color:transparent; }
 </style>
@@ -82,6 +90,7 @@
   <canvas id="dbg" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
   <div id="debug"></div>
   <div id="status" class="warn">-</div>
+  <div id="aim" hidden><i></i></div>
   <div id="bottom">
     <div id="hud">
       <div class="card" id="cardSense"><h3>인식</h3><div id="hudSense">-</div></div>
@@ -131,11 +140,12 @@
     <div id="recordBar" hidden>
       <button id="recUndo">되돌리기</button>
       <button id="recCancel">취소</button>
-      <button class="snap" id="recCard">카드 위치 찍기</button>
+      <button id="recAim">조준점 켬</button>
+      <button class="snap" id="recSnap">중앙선 맞추기</button>
+      <button class="primary" id="recDone">완료·저장</button>
+      <button id="recCard">카드 위치 찍기</button>
       <button id="recAuto">자동 경로</button>
       <button id="recLoop">중앙선 한 바퀴</button>
-      <button id="recSnap">차선 맞추기</button>
-      <button class="primary" id="recDone">완료·저장</button>
     </div>
   </div>
 </div>

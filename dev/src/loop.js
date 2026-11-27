@@ -46,8 +46,23 @@ function stripeScore(get, ci, cwN, laneN, dark) {
     }
   }
   if (nOk < nAll * 0.6) return NaN;
-  return B - Dmax - 0.5 * Math.max(0, Dmax - dark);
+  return B - Dmax - DARK_PENALTY * Math.max(0, Dmax - dark);
 }
+
+// 양옆 차로(각 3토막) 중 가장 밝은 토막의 평균 — 차로 폭 전체가 어두운지 보기 위함
+function flankMax(get, ci, cwN, laneN) {
+  const part = Math.max(1, Math.floor(laneN / 3));
+  let Dmax = -Infinity;
+  for (const side of [-1, 1]) for (let p = 0; p < 3; p++) {
+    let s = 0, n = 0;
+    for (let o = cwN + 1 + p * part; o < cwN + 1 + (p + 1) * part; o++) { const v = get(ci + side * o); if (!Number.isNaN(v)) { s += v; n++; } }
+    if (n) Dmax = Math.max(Dmax, s / n);
+  }
+  return Dmax;
+}
+// 탭 근처에서 붙일 때는 더 엄하게: 양옆 차로 폭 전체가 진하게 어두워야 중앙선 (A4 시트 도로 안쪽의 좁은 흰 섬처럼
+// '어두움-밝음-어두움'이지만 차로가 좁아 바깥 흰 바닥이 섞이는 것, 주차장처럼 옅게 어두운 것은 아님)
+const flankDarkEnough = (Dmax, dark, light) => Dmax <= dark + 0.35 * (light - dark);
 
 // 칸마다 중앙선 점수 (8방향 중 최대). 빠르게: 방향마다 칸 오프셋을 미리 계산하고, 가장자리 근처는 건너뜀
 function stripeMap(G, roadW) {
@@ -84,13 +99,15 @@ function stripeMap(G, roadW) {
         if (n && sum / n > Dmax) Dmax = sum / n;
       }
       if (nOk < 6 * part * 0.6 || !(B > -Infinity)) continue;
-      const sc = B - Dmax - 0.5 * Math.max(0, Dmax - dark);
+      const sc = B - Dmax - DARK_PENALTY * Math.max(0, Dmax - dark);
       if (Number.isNaN(best) || sc > best) best = sc;
     }
     S[c] = best;
   }
   return { S, dark, cwN, laneN };
 }
+// 양옆 차로가 이 주변의 가장 어두운 수준(검은 도로)보다 밝으면 그만큼 감점: 주차장 흰 칸 선(양옆이 어두운 회색)을 중앙선으로 보지 않게
+const DARK_PENALTY = 0.5;
 const stripeSize = (roadW, cell) => ({ cwN: Math.max(1, Math.round((roadW / 30) / cell)), laneN: Math.max(3, Math.round((roadW * 0.32) / cell)) });
 
 // 순환 비터비: cands[i] = [{r, s}] (각도 i의 후보). 반환: 각도마다 고른 r (못 고르면 NaN)
@@ -224,13 +241,22 @@ function findOnce(mosaic, opts) {
     let mx = 0, my = 0; for (const p of pts) { mx += p[0]; my += p[1]; }
     center = [mx / pts.length, my / pts.length];
   }
-  // ---- 다듬기: 원래 해상도에서 법선 단면 ----
+  const R = refineRing(mosaic, ring.pts, roadW, thr, [roadW * 0.35, roadW * 0.15]);
+  const maxGapCm = (ring.maxGap * dA) * (R.length / (2 * Math.PI));
+  // 기준을 엄하게: 덜 비춘 쪽을 이어 채운 고리는 지름길로 틀릴 수 있음 (가상 장면에서 1/3 바퀴만 비추면 고리의 13~30%가 3cm 넘게 틀림)
+  const ok = ring.found >= 0.85 && R.refined >= 0.95 && R.length > roadW * 6;
+  return { ok, pts: R.pts, weak: R.weak, length: R.length, found: ring.found, refined: R.refined, maxGapCm, center: ring.center, reason: ok ? null : ring.found < 0.85 ? 'partial' : 'weak' };
+}
+
+// 닫힌 고리 ringPts를 법선 단면으로 흰 중앙선에 맞춰 다듬기 (원래 해상도). thr: 중앙선으로 볼 최소 점수(null이면 단면마다 밝기 차로 정함)
+// Rs: 차례로 쓸 찾기 범위(cm, 단면 좌우). 반환: {pts(저장용 간격), weak(점마다: 중앙선을 직접 확인 못 하고 이어 채움), refined(확인한 비율), length}
+function refineRing(mosaic, ringPts, roadW, thr, Rs) {
   const step = Math.max(mosaic.cell * 2, roadW / 30);
-  let cur = smoothPath(ring.pts, true, step);
+  let cur = smoothPath(ringPts, true, step);
   const c = mosaic.cell;
   const { cwN, laneN } = stripeSize(roadW, c);
   let refined = 0, lastKeep = null;
-  for (const R of [roadW * 0.35, roadW * 0.15]) {
+  for (const R of Rs) {
     const n = cur.length;
     const nor = cur.map((_, i) => { const a = cur[(i - 1 + n) % n], bb = cur[(i + 1) % n]; const dx = bb[0] - a[0], dy = bb[1] - a[1], L = Math.hypot(dx, dy) || 1; return [-dy / L, dx / L]; });
     const reach = Math.ceil(R / c) + cwN + 1 + laneN;
@@ -239,15 +265,19 @@ function findOnce(mosaic, opts) {
       for (let o = -reach; o <= reach; o++) vals.push(mosaic.sample(p[0] + nor[i][0] * o * c, p[1] + nor[i][1] * o * c));
       const get = (k) => (k + reach < 0 || k + reach >= vals.length ? NaN : vals[k + reach]);
       const ok = vals.filter((v) => !Number.isNaN(v)).sort((x, y) => x - y);
-      const dark = ok.length ? ok[Math.floor(ok.length * 0.1)] : 0;
-      let best = -Infinity, bk = null; const sc = new Map();
+      if (ok.length < vals.length * 0.6) return NaN;
+      const dark = ok[Math.floor(ok.length * 0.1)], light = ok[Math.floor(ok.length * 0.9)];
+      const t = thr ?? Math.max(25, 0.35 * (light - dark));
+      let best = -Infinity, bk = null;
       const RN = Math.ceil(R / c);
-      for (let k = -RN; k <= RN; k++) { const s = stripeScore(get, k, cwN, laneN, dark); sc.set(k, s); if (s > best) { best = s; bk = k; } }
-      if (bk === null || !(best > thr)) return NaN;
-      // 중앙선 폭 안에서 밝기 무게 중심으로 칸 사이 위치
-      let sw = 0, so = 0;
-      for (let o = -cwN - 1; o <= cwN + 1; o++) { const v = get(bk + o); if (!Number.isNaN(v)) { const w = Math.max(0, v - dark); sw += w; so += w * (bk + o); } }
-      return (sw > 0 ? so / sw : bk) * c;
+      for (let k = -RN; k <= RN; k++) {
+        const s = stripeScore(get, k, cwN, laneN, dark);
+        if (!(s > best)) continue;
+        if (thr === null && !flankDarkEnough(flankMax(get, k, cwN, laneN), dark, light)) continue; // 탭 경로 다듬기: 엄하게
+        best = s; bk = k;
+      }
+      if (bk === null || !(best > t)) return NaN;
+      return stripeCentroid(get, bk, cwN, dark) * c;
     });
     // 이웃과 동떨어진 값 버리기 → 채우기 → 부드럽게 → 옮기기
     const M = Math.max(3, Math.round(roadW / step));
@@ -267,16 +297,87 @@ function findOnce(mosaic, opts) {
   const P = buildPath(cur, true);
   const spacing = Math.max(1.5, roadW / 15);
   const count = Math.max(16, Math.round(P.length / spacing));
-  const pts = [];
-  // weak[i]: 그 점 근처에서 중앙선을 직접 확인하지 못하고 앞뒤를 이어 채운 곳 (화면에 주황으로 — 더 비추면 좋아짐)
-  const weak = [];
+  const pts = [], weak = [];
   for (let i = 0; i < count; i++) {
     const k = Math.round((i / count) * cur.length) % cur.length;
     pts.push([+cur[k][0].toFixed(2), +cur[k][1].toFixed(2)]);
     weak.push(Number.isNaN(lastKeep[Math.round((k / cur.length) * lastKeep.length) % lastKeep.length]));
   }
-  const maxGapCm = (ring.maxGap * dA) * (P.length / (2 * Math.PI));
-  // 기준을 엄하게: 덜 비춘 쪽을 이어 채운 고리는 지름길로 틀릴 수 있음 (가상 장면에서 1/3 바퀴만 비추면 고리의 13~30%가 3cm 넘게 틀림)
-  const ok = ring.found >= 0.85 && refined >= 0.95 && P.length > roadW * 6;
-  return { ok, pts, weak, length: P.length, found: ring.found, refined, maxGapCm, center: ring.center, reason: ok ? null : ring.found < 0.85 ? 'partial' : 'weak' };
+  return { pts, weak, refined, length: P.length };
+}
+
+// 중앙선 폭 안에서 밝기 무게 중심 (칸 단위, 칸 사이 위치)
+function stripeCentroid(get, k, cwN, dark) {
+  let sw = 0, so = 0;
+  for (let o = -cwN - 1; o <= cwN + 1; o++) { const v = get(k + o); if (!Number.isNaN(v)) { const w = Math.max(0, v - dark); sw += w; so += w * (k + o); } }
+  return sw > 0 ? so / sw : k;
+}
+
+// 탭으로 찍은 고리(대충 중앙선 위)를 흰 중앙선에 붙이기: 탭 사이 곡선까지 법선 단면으로 다듬는다.
+// 탭 근처(roadWidth의 0.35배 안)만 찾으니 엉뚱한 도로로 가지 않는다.
+// 반환: {ok(확인한 비율 70% 이상), pts, weak, refined, length}
+export function refineAlongStripe(mosaic, taps, { roadWidth = 30 } = {}) {
+  if (!taps || taps.length < 3) return { ok: false, reason: 'short' };
+  const r = refineRing(mosaic, taps, roadWidth, null, [roadWidth * 0.35, roadWidth * 0.15]);
+  return { ...r, ok: r.refined >= 0.7, reason: r.refined >= 0.7 ? null : 'weak' };
+}
+
+// 한 점 p 근처(반경 radius, 기본 도로 폭의 0.3배)에서 흰 중앙선 위 가장 그럴듯한 점 찾기 (탭할 때마다 바로 붙이기용)
+// guide: {p, dir} 앞서 찍은 점으로 예상한 경로 선 (travelGuide). 주면
+//  - 이 방향과 엇갈리는 줄(주차선·횡단보도처럼 가로지르는 선)은 빼고
+//  - 이 선에서 옆으로 멀리 떨어진 후보(도로 위 흰 기둥이 바닥에 비친 자국 등)는 거의 고르지 않는다
+// 반환: {ok, x, y, dist(옮긴 거리), score} — 못 찾으면 ok: false
+export function snapToStripe(mosaic, p, { roadWidth = 30, radius = null, guide = null } = {}) {
+  const dir = guide ? guide.dir : null;
+  const R = radius ?? roadWidth * 0.3, c = mosaic.cell;
+  const { cwN, laneN } = stripeSize(roadWidth, c);
+  const reach = cwN + 1 + laneN;
+  // 주변 밝기 수준
+  const around = [];
+  for (let y = -R - reach * c; y <= R + reach * c; y += c * 2) for (let x = -R - reach * c; x <= R + reach * c; x += c * 2) {
+    const v = mosaic.sample(p[0] + x, p[1] + y); if (!Number.isNaN(v)) around.push(v);
+  }
+  if (around.length < 30) return { ok: false, reason: 'unscanned' };
+  around.sort((a, b) => a - b);
+  const dark = around[Math.floor(around.length * 0.1)], light = around[Math.floor(around.length * 0.9)];
+  const thr = Math.max(25, 0.35 * (light - dark));
+  const dirs = []; for (let k = 0; k < 8; k++) { const a = (k * Math.PI) / 8; dirs.push([Math.cos(a), Math.sin(a)]); }
+  const s = Math.max(c, roadWidth / 60);
+  let best = null;
+  for (let y = -R; y <= R + 1e-9; y += s) for (let x = -R; x <= R + 1e-9; x += s) {
+    const d = Math.hypot(x, y);
+    if (d > R) continue;
+    const q = [p[0] + x, p[1] + y];
+    for (const n of dirs) {
+      if (dir && Math.abs(n[0] * dir[0] + n[1] * dir[1]) > 0.85) continue; // 줄 방향이 진행 방향과 58° 넘게 엇갈림 (가로지르는 선)
+      const get = (o) => mosaic.sample(q[0] + n[0] * o * c, q[1] + n[1] * o * c);
+      const sc = stripeScore(get, 0, cwN, laneN, dark);
+      if (!(sc > thr) || !flankDarkEnough(flankMax(get, 0, cwN, laneN), dark, light)) continue;
+      let v = sc * (1 - 0.3 * (d / R) ** 2); // 같으면 탭한 곳에 가까운 쪽
+      if (guide) {
+        // 예상 선에서 옆으로 벗어난 거리. 곡선이면 앞으로 갈수록 벗어나니(반지름 60cm 곡선만큼) 그만큼 더 봐줌
+        const dx = q[0] - guide.p[0], dy = q[1] - guide.p[1];
+        const lat = Math.abs(dx * dir[1] - dy * dir[0]), along = dx * dir[0] + dy * dir[1];
+        const bend = (along * along) / (2 * 60);
+        if (lat > roadWidth * 0.35 + bend) continue; // 예상 경로 선에서 너무 벗어남 (차로 하나 폭 가까이)
+        v *= Math.exp(-0.5 * (Math.max(0, lat - bend) / (roadWidth * 0.2)) ** 2);
+      }
+      if (!best || v > best.v) best = { v, sc, q, n, get };
+    }
+  }
+  if (!best) return { ok: false, reason: 'nostripe' };
+  const off = stripeCentroid(best.get, 0, cwN, dark) * c;
+  const x = best.q[0] + best.n[0] * off, y = best.q[1] + best.n[1] * off;
+  return { ok: true, x, y, dist: Math.hypot(x - p[0], y - p[1]), score: best.sc };
+}
+
+// 탭할 때 예상 경로 선 {p, dir} 또는 null: 이미 찍은 앞의 두 점(중앙선에 붙어 정확함)을 잇는 선.
+// 점이 하나뿐이면 그 점 → 이번 탭 방향(옆 거리 판단 없이 방향만 쓰도록 p는 이번 탭). 이번 탭이 80cm 넘게 떨어지면 쓰지 않음
+export function travelGuide(pts, p) {
+  const a = pts[pts.length - 2], b = pts[pts.length - 1];
+  const unit = (u, v) => { const dx = v[0] - u[0], dy = v[1] - u[1], L = Math.hypot(dx, dy); return L > 2 && L < 150 ? [dx / L, dy / L] : null; };
+  if (!b || Math.hypot(p[0] - b[0], p[1] - b[1]) > 80) return null; // 멀리 떨어진 점으로는 예상하지 않음
+  if (a) { const dir = unit(a, b); return dir ? { p: b, dir } : null; }
+  const dir = unit(b, p);
+  return dir ? { p, dir } : null;
 }

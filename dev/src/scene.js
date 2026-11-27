@@ -63,3 +63,17 @@ export function disposeObject(obj) {
 export function clearGroup(group) {
   while (group.children.length) disposeObject(group.children[0]);
 }
+
+// 고리 선: 점마다 색(약한 곳 주황)
+export function coloredLoop(pts, weak, okColor, z) {
+  const n = pts.length, col = [], pos = [];
+  const a = new THREE.Color(okColor), w = new THREE.Color(0xff9f0a);
+  for (let i = 0; i <= n; i++) {
+    const p = pts[i % n], c = weak && weak[i % n] ? w : a;
+    pos.push(p[0], p[1], z); col.push(c.r, c.g, c.b);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true }));
+}

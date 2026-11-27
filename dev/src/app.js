@@ -4,6 +4,7 @@ import { applyH, makeK, estimateFocal, transformPoint, inv3, mul3, project } fro
 import { RoadPoseTracker, solveBarricade, toFullRes } from './tracking.js';
 import { MarkerMapper } from './mapping.js';
 import { RoadMosaic, snapPathToLane } from './lane.js';
+import { snapToStripe, refineAlongStripe, travelGuide } from './loop.js';
 import {
   smoothPath, buildPath, carPoseAt, CarController, BarricadeTracker, blocksPath,
 } from './logic.js';
@@ -11,9 +12,9 @@ import { DEFAULT_CONFIG, isSheetMap } from './config.js';
 import {
   clone, mergeDeep, loadConfig, storeConfig, loadShared, downloadShared, sharedLabel,
 } from './store.js';
-import { makeCar, makeBarricadeVis, disposeObject, clearGroup } from './scene.js';
+import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
 import {
-  roadHeight, markerSizeOf, carDimsOf, driveOptsOf, clearanceOf, liftPose, laneSnapOpts, laneSnapMessage, setupMenuToggle,
+  roadHeight, markerSizeOf, carDimsOf, driveOptsOf, clearanceOf, liftPose, laneSnapOpts, laneSnapMessage, setupMenuToggle, centerLineOn,
 } from './common.js';
 
 const AR = window.AR;
@@ -375,8 +376,8 @@ function updateHud(now, tracking) {
   }
   if (!holdStatus) {
     let msg = tracking
-      ? recording.active ? (recording.snapped ? '차선에 맞춘 경로(초록) · 괜찮으면 [완료·저장]'
-        : `점 ${recording.pts.length}개 · 차선 가운데를 탭 (곡선은 2~3번)`) : '도로 인식됨'
+      ? recording.active ? (recording.snapped ? '맞춘 경로(초록) · 괜찮으면 [완료·저장]'
+        : `${aimOn ? '조준점(+)을 흰 중앙선에 맞추고 화면을 톡' : '흰 중앙선 위를 톡'} · 직선 30~50cm, 곡선 10~15cm마다 · 점 ${recording.pts.length}개(중앙선에 붙음 ${recording.pts.filter((p) => tapState.get(p) === 'ok').length}) · 한 바퀴 돌면 [중앙선 맞추기]`) : '도로 인식됨'
       : '도로 마커를 화면에 비춰 주세요';
     if (tracking && !recording.active && roadCount === 1) msg = '도로 인식됨 · 마커가 2개 이상 보이면 더 안정적이에요';
     if (tracking && cfg.pathStale && !recording.active) msg = '마커 지도가 바뀌었어요 · [경로 기록]으로 새 경로를 만들어 주세요';
@@ -437,10 +438,10 @@ function screenToTable(clientX, clientY) {
 }
 function refreshRecordVis() {
   clearGroup(recordGroup);
-  const mat = new THREE.MeshBasicMaterial({ color: 0xff00aa });
+  const mats = { ok: new THREE.MeshBasicMaterial({ color: 0x3ddc84 }), miss: new THREE.MeshBasicMaterial({ color: 0xff9f0a }), pending: new THREE.MeshBasicMaterial({ color: 0xff00aa }) };
   const geo = new THREE.SphereGeometry(0.35, 12, 8);
   for (const p of recording.pts) {
-    const s = new THREE.Mesh(geo, mat);
+    const s = new THREE.Mesh(geo, mats[tapState.get(p) || 'pending']);
     s.scale.setScalar(cfg.car.width / 1.8);
     s.position.set(p[0], p[1], 0.35 * (cfg.car.width / 1.8));
     recordGroup.add(s);
@@ -450,7 +451,8 @@ function refreshRecordVis() {
       [...recording.pts, recording.pts[0]].map((p) => new THREE.Vector3(p[0], p[1], 0.1)));
     recordGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xff00aa, transparent: true, opacity: recording.snapped ? 0.35 : 1 })));
   }
-  if (recording.snapped) {
+  if (recording.snapped && recording.snapWeak) recordGroup.add(coloredLoop(recording.snapped, recording.snapWeak, 0x3ddc84, 0.15));
+  else if (recording.snapped) {
     const sp = smoothPath(recording.snapped, true, 0.5);
     const g = new THREE.BufferGeometry().setFromPoints([...sp, sp[0]].map((p) => new THREE.Vector3(p[0], p[1], 0.15)));
     recordGroup.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x3ddc84 })));
@@ -458,13 +460,25 @@ function refreshRecordVis() {
 }
 
 // 탭한 점들을 흰 선 사이(차선 가운데)로 옮긴다
+// [중앙선 맞추기]: 탭한 점 사이 곡선까지 흰 중앙선에 붙인다 (중앙선에 못 붙은 점은 붙은 점이 충분하면 뺌).
+// 흰 중앙선이 없는 도로(A4 시트 등)면 예전 차선 맞추기로
 function snapRecording() {
   if (recording.pts.length < 4) { flash('점을 4개 이상 찍은 뒤 눌러 주세요'); return; }
-  const res = snapPathToLane(mosaic, recording.pts, laneSnapOpts(cfg, mosaic));
-  lastSnap = res;
-  flash(laneSnapMessage(res), 3500, res.ok ? 'ok' : 'warn');
-  if (!res.ok) return;
-  recording.snapped = res.pts;
+  const nOk = recording.pts.filter((p) => tapState.get(p) === 'ok').length;
+  const base = nOk >= 4 && nOk >= recording.pts.length * 0.5 ? recording.pts.filter((p) => tapState.get(p) !== 'miss') : recording.pts;
+  const res = centerLineOn(cfg) ? refineAlongStripe(mosaic, base, { roadWidth: cfg.lane.roadWidth || 30 }) : { ok: false };
+  if (res.ok) {
+    lastSnap = { ...res, method: 'stripe' };
+    recording.snapped = res.pts; recording.snapWeak = res.weak;
+    refreshRecordVis();
+    flash(`중앙선에 맞췄어요 · 확인 ${Math.round(res.refined * 100)}%${res.weak.some(Boolean) ? ' · 주황 부분은 중앙선을 못 봐서 이어 붙였어요' : ''} · 괜찮으면 [완료·저장]`, 5000);
+    return;
+  }
+  const lane = snapPathToLane(mosaic, recording.pts, laneSnapOpts(cfg, mosaic));
+  lastSnap = { ...lane, method: 'lane' };
+  flash(laneSnapMessage(lane), 3500, lane.ok ? 'ok' : 'warn');
+  if (!lane.ok) return;
+  recording.snapped = lane.pts; recording.snapWeak = null;
   refreshRecordVis();
 }
 let lastSnap = null;
@@ -474,14 +488,35 @@ function flash(msg, ms = 3500, cls = 'ok') {
   $('status').className = cls;
   flashUntil = performance.now() + ms;
 }
+// 조준점 켬(기본): 손가락 위치 대신 화면 가운데(조준점)를 쓴다 (손가락은 화면에서 2~3mm 빗나가고, 디오라마에서는 그 몇 배)
+let aimOn = true;
+try { aimOn = localStorage.getItem('raim-ar-aim') !== '0'; } catch (e) { /* 무시 */ }
+function setAim(on) {
+  aimOn = on;
+  try { localStorage.setItem('raim-ar-aim', on ? '1' : '0'); } catch (e) { /* 무시 */ }
+  $('recAim').textContent = on ? '조준점 켬' : '조준점 끔(손가락)';
+  $('recAim').classList.toggle('off', !on);
+  $('aim').hidden = !(recording.active && on);
+}
+// 탭한 점은 근처 흰 중앙선에 바로 붙인다. 점 색: 초록 = 붙음, 주황 = 못 찾아 탭한 자리 그대로
+const tapState = new WeakMap();
 stage.addEventListener('pointerdown', (e) => {
   if (!recording.active) return;
   const tracking = havePose && performance.now() - lastRoadSeen < cfg.tracking.lostMs;
   if (!tracking) return;
-  const p = screenToTable(e.clientX, e.clientY);
+  const rect = stage.getBoundingClientRect();
+  const p = aimOn ? screenToTable(rect.left + rect.width / 2, rect.top + rect.height / 2) : screenToTable(e.clientX, e.clientY);
   if (!p) return;
-  recording.pts.push([+p[0].toFixed(2), +p[1].toFixed(2)]);
-  recording.snapped = null;
+  const entry = [+p[0].toFixed(2), +p[1].toFixed(2)];
+  const roadWidth = cfg.lane.roadWidth || 30;
+  const guide = travelGuide(recording.pts.filter((q) => tapState.get(q) === 'ok'), entry);
+  if (centerLineOn(cfg)) {
+    const r = mosaic ? snapToStripe(mosaic, entry, { roadWidth, guide }) : { ok: false };
+    if (r.ok) { entry[0] = +r.x.toFixed(2); entry[1] = +r.y.toFixed(2); }
+    tapState.set(entry, r.ok ? 'ok' : 'miss');
+  }
+  recording.pts.push(entry);
+  recording.snapped = null; recording.snapWeak = null;
   refreshRecordVis();
 });
 // ---------- 마커 지도 만들기 ----------
@@ -538,7 +573,8 @@ let lastMapResult = null;
 function setRecording(on) {
   recording.active = on;
   recording.pts = [];
-  recording.snapped = null;
+  recording.snapped = null; recording.snapWeak = null;
+  setAim(aimOn);
   refreshRecordVis();
   $('recordBar').hidden = !on;
   $('mainButtons').hidden = on;
@@ -611,9 +647,10 @@ $('mapReset').onclick = () => setMapping(true);
 $('mapCancel').onclick = () => setMapping(false);
 $('mapDone').onclick = finishMapping;
 $('recUndo').onclick = () => {
-  if (recording.snapped) recording.snapped = null; else recording.pts.pop();
+  if (recording.snapped) { recording.snapped = null; recording.snapWeak = null; } else recording.pts.pop();
   refreshRecordVis();
 };
+$('recAim').onclick = () => setAim(!aimOn);
 $('recSnap').onclick = snapRecording;
 function setCarScale(k) {
   cfg.car.scale = +Math.max(0.5, Math.min(5, k)).toFixed(2);

@@ -8,7 +8,7 @@ const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream',
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.goto('http://localhost:8765/index.html');
-await page.evaluate(() => localStorage.clear());
+await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-aim', '0'); }); // 손가락 탭 흉내 (조준점 끔)
 await page.reload();
 await page.click('#btnCamera');
 const t0 = Date.now();
