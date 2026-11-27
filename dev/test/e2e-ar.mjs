@@ -11,6 +11,7 @@ const TRUE = meta.TRUE;
 async function run(flip) {
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
+  await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
   const errs = []; page.on('pageerror', (e) => errs.push(e.message + ' @ ' + (e.stack || '').split('\n').slice(1, 4).join(' | '))); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
   await page.addInitScript(`window.__mockFlip = ${flip};\n${mock}`);
   await page.goto('http://localhost:8765/ar.html');

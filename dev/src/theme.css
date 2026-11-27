@@ -1,0 +1,186 @@
+/* RAIM AR 자율주행 — 관람객·관리자 공통 디자인 (Autonomous Mobility Tour 디자인 토큰을 따름)
+ * build.mjs가 index.html·ar.html의 <style> 맨 앞에 넣는다. */
+@font-face {
+  font-family: "Pretendard Variable";
+  src: url("assets/PretendardVariable.woff2") format("woff2-variations");
+  font-weight: 45 920; font-style: normal; font-display: swap;
+}
+:root {
+  --c-319: #1fbdc6; /* 완료 */
+  --c-311: #00bfdf; /* 인터랙티브 강조 */
+  --c-646: #508ebc; /* 보조 정보 */
+  --c-2985: #276fb7; /* 활성 */
+  --c-301: #00448b; /* Primary, 제목 */
+  --warn: #c77700;
+  --stop: #d9534f;
+  --fg: #1d2a36; --fg-2: #4d5c6a; --fg-3: #7d8a96;
+  --touch: 48px; --radius: 16px;
+  --glass-bg: linear-gradient(155deg, rgba(255,255,255,.82) 0%, rgba(255,252,248,.62) 55%, rgba(255,250,244,.70) 100%);
+  --glass-blur: blur(24px) saturate(160%);
+  --glass-edge: rgba(255,255,255,.85);
+  --glass-shadow: inset 0 1px 0 rgba(255,255,255,.95), 0 14px 40px rgba(40,52,66,.14);
+  --solid-bg: rgba(255,255,255,.9); /* AR 화면 위: 카메라 영상은 흐리게 할 수 없어 불투명에 가깝게 */
+  --inner-bg: rgba(255,255,255,.62); --inner-edge: rgba(0,68,139,.10); --hairline: rgba(0,68,139,.10);
+  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: var(--font); color: var(--fg); background: #eef2f5; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+input, textarea, select { font: inherit; }
+h1, h2, h3 { color: var(--c-301); margin: 0; line-height: 1.25; letter-spacing: -0.02em; }
+[hidden] { display: none !important; }
+/* 한국어 조판 규칙 (RAIM 공통) */
+:lang(ko) { word-break: keep-all; overflow-wrap: anywhere; }
+:lang(ko) :is(h1, h2, h3, h4, .title-chip, .guide) { text-wrap: pretty; }
+
+/* 관람객 / 관리자 화면 나누기: 관리자 모드(암호)일 때만 body.admin */
+body:not(.admin) .admin-only { display: none !important; }
+body.admin .visitor-only { display: none !important; }
+
+/* ───── 배경: 흐린 교육장 사진 + 밝은 안개 ───── */
+.room-bg { position: fixed; inset: -24px; z-index: -1; background: #e9e6e2 url("assets/room.webp") center / cover no-repeat; filter: blur(8px); }
+.room-bg::after {
+  content: ""; position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 55% 60% at 10% 15%, rgba(0,191,223,.18), transparent 70%),
+    radial-gradient(ellipse 60% 55% at 92% 90%, rgba(39,111,183,.16), transparent 70%),
+    radial-gradient(ellipse 50% 45% at 72% 8%, rgba(255,214,170,.18), transparent 70%),
+    linear-gradient(180deg, rgba(250,248,245,.62) 0%, rgba(250,248,245,0) 38%),
+    rgba(250,248,245,.42);
+}
+
+/* ───── 유리 패널 ───── */
+.glass {
+  background: var(--glass-bg); border: 1px solid var(--glass-edge); border-radius: var(--radius); box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); color: var(--fg);
+}
+.glass.solid { background: var(--solid-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .glass { background: rgba(255,255,255,.97); } }
+
+/* ───── 버튼 (유리 대신 단색) ───── */
+.btn {
+  min-height: var(--touch); min-width: var(--touch); padding: 10px 24px; border-radius: 10px; border: 0;
+  font-weight: 650; font-size: 1.05rem; white-space: nowrap; letter-spacing: -0.01em;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: transform .1s ease, background .15s ease; touch-action: manipulation; text-decoration: none;
+}
+.btn:active { transform: scale(.96); }
+.btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+.btn.primary { background: var(--c-301); color: #fff; }
+.btn.primary:active { background: #003670; }
+.btn.secondary { background: var(--c-2985); color: #fff; }
+.btn.ghost { background: #fff; color: var(--c-301); border: 1px solid rgba(0,68,139,.18); }
+.btn.ghost:active { background: #edf3f9; }
+.btn.small { font-size: .92rem; font-weight: 600; padding: 8px 16px; }
+.btn.lg { min-height: 56px; padding: 12px 30px; font-size: 1.12rem; }
+.btn.xl { min-height: 68px; padding: 16px 48px; font-size: 1.3rem; }
+.btn.round { width: var(--touch); padding: 0; border-radius: 50%; font-size: 1.35rem; }
+.btn.off { opacity: .55; }
+
+.title-chip { font-size: 1.35rem; font-weight: 700; color: var(--c-301); letter-spacing: -0.02em; }
+.eyebrow { margin: 0 0 6px; font-weight: 650; color: var(--c-2985); letter-spacing: .01em; font-size: .95rem; }
+.muted { color: var(--fg-2); }
+.version-tag { position: fixed; right: 20px; bottom: 12px; margin: 0; font-size: .8rem; color: var(--fg-3); }
+.admin-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; background: var(--c-301); color: #fff; font-weight: 650; font-size: .9rem; }
+
+/* ───── 시작 화면 ───── */
+.start-screen { position: fixed; inset: 0; overflow: auto; display: flex; flex-direction: column; padding: 20px 28px; gap: 16px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.start-main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; min-height: 0; }
+/* 관람객 시작: 큰 버튼 하나 (누르면 바로 AR) */
+.start-solo { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.start-btn {
+  min-height: 112px; min-width: 340px; padding: 24px 72px; border-radius: 999px; font-size: 2.2rem; font-weight: 750; letter-spacing: -0.02em;
+  box-shadow: 0 0 0 10px rgba(255,255,255,.55), 0 0 40px 8px rgba(0,191,223,.35), 0 18px 40px rgba(0,40,90,.25);
+}
+.start-btn:disabled { opacity: .55; }
+.start-msg { text-align: center; }
+body.admin .start-btn { min-height: 76px; min-width: 240px; padding: 14px 48px; font-size: 1.5rem; }
+.btn.round svg { width: 24px; height: 24px; }
+.start-msg { margin: 0; min-height: 1.4em; font-weight: 600; color: var(--warn); white-space: pre-line; }
+.start-msg.ok { color: #0f8f96; }
+.admin-card { width: min(920px, 100%); padding: 22px 26px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.admin-card h2 { font-size: 1.15rem; }
+.admin-card .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.info-box { background: #fff; border: 1px solid var(--inner-edge); border-radius: 12px; padding: 12px 16px; font-size: .98rem; line-height: 1.6; color: var(--fg); }
+
+/* ───── AR·카메라 화면 위 (관람객) ───── */
+.guide {
+  position: absolute; left: 50%; top: 16px; transform: translateX(-50%); max-width: calc(100vw - 320px); width: max-content;
+  padding: 12px 22px; border-radius: 999px; font-size: 1.15rem; font-weight: 650; color: var(--c-301); text-align: center; line-height: 1.4;
+}
+.guide.warn { color: var(--warn); }
+.corner { position: absolute; top: 14px; right: 16px; display: flex; gap: 8px; align-items: center; }
+.corner-left { position: absolute; top: 14px; left: 16px; display: flex; gap: 8px; align-items: center; }
+.hud-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.hud-card { padding: 14px 18px 16px; border-radius: 14px; border: 2px solid transparent; transition: border-color .2s ease, box-shadow .2s ease; min-width: 0; }
+.hud-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.hud-head .dot { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,68,139,.08); color: var(--c-301); font-weight: 750; font-size: .9rem; flex-shrink: 0; }
+.hud-head h3 { font-size: 1.05rem; }
+.hud-head small { color: var(--fg-3); font-weight: 600; font-size: .85rem; }
+.hud-body { font-size: 1.12rem; font-weight: 650; line-height: 1.4; color: var(--fg); min-height: 1.4em; }
+.hud-card.hot { border-color: var(--c-311); box-shadow: 0 0 0 3px rgba(0,191,223,.18), 0 14px 40px rgba(40,52,66,.14); }
+.hud-card.hot .dot { background: var(--c-311); color: #fff; }
+.hud-card.stop { border-color: var(--stop); box-shadow: 0 0 0 3px rgba(217,83,79,.18), 0 14px 40px rgba(40,52,66,.14); }
+.hud-card.stop .dot { background: var(--stop); color: #fff; }
+.gauge { height: 8px; border-radius: 4px; background: rgba(0,68,139,.08); margin-top: 10px; overflow: hidden; }
+#speedBar { height: 100%; width: 0; background: var(--c-319); transition: width .15s linear; }
+#speedBar.brake { background: #e6a23c; } #speedBar.stop { background: var(--stop); }
+
+/* ───── 관리자 버튼 묶음 (AR·카메라 화면 위) ───── */
+.admin-panel { padding: 10px; border-radius: 14px; display: flex; flex-direction: column; gap: 8px; }
+.admin-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.admin-panel .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.admin-panel .grid > button, .admin-panel .pair > button, .bar-buttons button {
+  min-height: 44px; padding: 8px 6px; border-radius: 10px; border: 1px solid rgba(0,68,139,.16); background: #fff; color: var(--c-301); font-weight: 650; font-size: .92rem; min-width: 0;
+}
+.admin-panel .pair { display: flex; gap: 4px; }
+.admin-panel .pair > button { flex: 1; }
+.admin-panel button.primary, .bar-buttons button.primary { background: var(--c-301); color: #fff; border-color: transparent; }
+.admin-panel button.off, .bar-buttons button.off { opacity: .5; }
+.debug-line { font-size: .78rem; color: var(--fg-2); background: rgba(255,255,255,.8); padding: 3px 8px; border-radius: 6px; }
+.task-card { padding: 16px 18px; border-radius: 14px; display: flex; flex-direction: column; gap: 10px; }
+.task-card h3 { font-size: 1.1rem; }
+.task-card p { margin: 0; font-size: .95rem; line-height: 1.55; color: var(--fg-2); }
+.task-card label { font-size: .95rem; font-weight: 600; color: var(--fg-2); }
+.task-card input { width: 70px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(0,68,139,.2); background: #fff; color: var(--fg); }
+.task-card .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.task-card .row button, .bar-buttons button { flex: 1; min-height: 48px; }
+.bar-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.bar-buttons.glass { padding: 10px; border-radius: 14px; }
+.bar-buttons button { flex: 1 1 18%; }
+.bar-buttons button.snap { background: var(--c-319); color: #fff; border-color: transparent; }
+
+/* ───── 관리자 암호 창 ───── */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(30,36,44,.28); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); display: grid; place-items: center; z-index: 50; }
+.pin-modal { padding: 28px 30px 24px; width: min(380px, 92vw); text-align: center; display: flex; flex-direction: column; gap: 14px; }
+.pin-modal h2 { font-size: 1.5rem; }
+.pin-modal p { margin: 0; color: var(--fg-2); }
+.pin-dots { display: flex; justify-content: center; gap: 14px; margin: 4px 0; }
+.pin-dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--c-2985); }
+.pin-dots i.on { background: var(--c-2985); }
+.pin-dots.shake { animation: shake .35s ease; }
+.pin-dots.shake i { border-color: var(--stop); }
+@keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+.pin-msg { min-height: 1.3em; color: var(--stop) !important; font-weight: 600; font-size: .95rem; }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.keypad button { min-height: 64px; border-radius: 12px; border: 1px solid rgba(0,68,139,.14); background: #fff; color: var(--c-301); font-size: 1.5rem; font-weight: 650; }
+.keypad button:active { background: #edf3f9; transform: scale(.96); }
+.keypad button.fn { font-size: 1rem; color: var(--fg-2); }
+
+/* 세로 휴대폰 */
+@media (orientation: portrait) and (max-width: 599px) {
+  :root { --touch: 42px; }
+  .start-screen { padding: 12px 14px; }
+  .start-btn { min-height: 88px; min-width: 240px; padding: 18px 48px; font-size: 1.8rem; }
+  .btn.xl { min-height: 56px; padding: 10px 30px; font-size: 1.12rem; }
+  .guide { top: 64px; max-width: calc(100vw - 24px); font-size: .98rem; padding: 10px 16px; border-radius: 16px; width: auto; }
+  .hud-cards { gap: 6px; }
+  .hud-card { padding: 8px 10px; }
+  .hud-head { margin-bottom: 2px; gap: 6px; }
+  .hud-head .dot { width: 24px; height: 24px; font-size: .78rem; }
+  .hud-head small { display: none; }
+  .hud-body { font-size: .88rem; }
+}

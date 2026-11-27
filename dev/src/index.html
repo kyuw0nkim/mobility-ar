@@ -2,114 +2,47 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>RAIM AR 자율주행 · 마커 버전</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#00448B">
+<title>자율주행 카메라</title>
 <link rel="icon" href="data:,">
+<link rel="preload" href="assets/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-  :root { --bg:#0d1117; --panel:rgba(13,17,23,.78); --line:rgba(255,255,255,.14); --text:#f2f4f7; --muted:#a8b0bb; --accent:#38d9ff; --hot:#ff453a; --amber:#ffc400; --ok:#3ddc84; }
-  * { box-sizing: border-box; }
-  html, body { margin:0; height:100%; background:#000; color:var(--text); font-family: system-ui, -apple-system, "Noto Sans KR", sans-serif; overflow:hidden; -webkit-user-select:none; user-select:none; }
+/*THEME*/
+  html, body { overflow:hidden; }
+  body { background:#000; }
   #stage { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); touch-action:none; }
   #stage > * { position:absolute; inset:0; width:100%; height:100%; }
   video { object-fit:fill; }
-  [hidden] { display:none !important; }
-
-  #start { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; background:var(--bg); padding:24px; text-align:center; z-index:10; }
-  #start h1 { margin:0; font-size:26px; }
-  #start p { margin:0; color:var(--muted); max-width:560px; line-height:1.6; }
-  #startMsg { color:var(--hot) !important; white-space:pre-line; }
-  .bigbtn { font-size:20px; padding:16px 30px; border-radius:14px; border:0; background:var(--accent); color:#002833; font-weight:700; cursor:pointer; }
-  .linkbtn { color:var(--muted); font-size:15px; cursor:pointer; text-decoration:underline; }
-
+  #start { z-index:10; }
   #ui { position:fixed; inset:0; pointer-events:none; z-index:5; }
-  #ui button, #ui .card, #settings * { pointer-events:auto; }
-  #status { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:8px 16px; border-radius:999px; background:var(--panel); font-size:16px; font-weight:600; border:1px solid var(--line); }
-  #status.ok { color:var(--ok); } #status.warn { color:var(--amber); }
-  #debug { position:absolute; top:16px; left:16px; font-size:12px; color:var(--muted); background:var(--panel); padding:4px 8px; border-radius:6px; }
-
-  /* 아래쪽: 인식·판단·제어 카드(왼쪽)와 버튼(오른쪽)을 한 줄로 배치해 서로 겹치지 않게 */
-  #bottom { position:absolute; left:16px; right:16px; bottom:16px; display:flex; justify-content:space-between; align-items:flex-end; gap:12px; pointer-events:none; }
-  #hud { display:flex; gap:10px; min-width:0; }
-  .card { width:220px; padding:10px 12px; border-radius:12px; background:var(--panel); border:1px solid var(--line); transition:border-color .2s; }
-  .card.hot { border-color:var(--hot); box-shadow:0 0 0 1px var(--hot) inset; }
-  .card h3 { margin:0 0 4px; font-size:13px; color:var(--muted); font-weight:600; letter-spacing:.02em; }
-  .card h3 b { color:var(--text); font-size:15px; margin-right:6px; }
-  .card div { font-size:15px; font-weight:600; min-height:20px; }
-  .gauge { height:8px; border-radius:4px; background:rgba(255,255,255,.12); margin-top:6px; overflow:hidden; }
-  #speedBar { height:100%; width:0; background:var(--ok); transition:width .1s; }
-  #speedBar.brake { background:var(--amber); } #speedBar.stop { background:var(--hot); }
-
-  .side { display:flex; flex-direction:column; gap:8px; flex:none; }
-  #btnMenu { display:none; }
-  .side button, #recordBar button { font-size:15px; padding:11px 14px; min-width:132px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--text); font-weight:600; cursor:pointer; }
-  .side button.off { opacity:.5; }
-  .side button.primary { background:var(--amber); color:#2b2000; border-color:transparent; }
-  .side .pair { display:flex; gap:8px; }
-  .side .pair button { flex:1; min-width:0; }
-  #recordBar { position:absolute; right:16px; bottom:16px; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:8px; max-width:calc(100vw - 32px); }
-  #recordBar button { min-width:96px; }
-  #recordBar button.off { opacity:.55; }
+  #ui button, #ui input, #ui label, #ui .glass { pointer-events:auto; }
+  #ui .guide { pointer-events:none; }
+  #bottom { position:absolute; left:16px; right:16px; bottom:14px; display:grid; grid-template-columns:minmax(0, 1fr); gap:10px; align-items:end; }
+  #hud { width:min(1080px, 100%); justify-self:center; }
+  body.admin #bottom { grid-template-columns:minmax(0, 1fr) minmax(0, 470px); }
+  body.admin #hud { grid-column:1; justify-self:stretch; }
+  body.admin #bottom > :not(#hud) { grid-column:2; }
+  #mainButtons.collapsed .grid > :not(#btnClear):not(#btnMenu) { display:none; }
   /* 조준점: 화면 가운데를 흰 중앙선에 맞추고 아무 데나 탭 */
-  #aim { position:fixed; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; pointer-events:none; z-index:5; }
+  #aim { position:fixed; left:50%; top:50%; width:64px; height:64px; margin:-32px 0 0 -32px; pointer-events:none; z-index:6; }
   #aim::before, #aim::after { content:""; position:absolute; background:#ff00aa; box-shadow:0 0 0 1px rgba(255,255,255,.8); }
   #aim::before { left:31px; top:0; width:2px; height:64px; }
   #aim::after { top:31px; left:0; height:2px; width:64px; }
   #aim i { position:absolute; left:24px; top:24px; width:16px; height:16px; border:2px solid #ff00aa; border-radius:50%; background:rgba(255,255,255,.15); }
-  #recordBar button.snap { background:#3ddc84; color:#002b14; border-color:transparent; }
-  #mapBar { position:absolute; right:16px; bottom:16px; pointer-events:auto; }
-  .mapcard { width:min(420px,92vw); background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; display:flex; flex-direction:column; gap:8px; }
-  .mapcard h3 { margin:0; font-size:17px; }
-  .mapcard p { margin:0; font-size:13px; color:var(--muted); line-height:1.5; }
-  .mapcard label { font-size:14px; }
-  .mapcard input { width:72px; font-size:15px; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:#010409; color:var(--text); }
-  #mapInfo { font-size:14px; font-weight:600; }
-  #mapMsg { font-size:13px; color:var(--amber); min-height:16px; }
-  .mapcard .row { display:flex; gap:8px; }
-  .mapcard button { flex:1; font-size:15px; padding:11px 10px; border-radius:10px; border:1px solid var(--line); background:#1f2630; color:var(--text); font-weight:600; cursor:pointer; }
-  .mapcard button.primary { background:var(--accent); color:#002833; border-color:transparent; }
-  #recordBar button.primary { background:#ff00aa; color:#fff; border-color:transparent; }
-
-  #settings { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:20; }
-  #settings .box { width:min(820px,94vw); height:min(86vh,900px); background:var(--bg); border:1px solid var(--line); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:10px; }
-  #settings h2 { margin:0; font-size:18px; }
-  #settings p { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
-  #cfgText { flex:1; width:100%; background:#010409; color:#d6e2f0; border:1px solid var(--line); border-radius:8px; font:12px/1.4 ui-monospace, Menlo, monospace; padding:10px; -webkit-user-select:text; user-select:text; }
+  /* 설정(관리자): 지도·경로·차 설정 JSON */
+  #settings .box { width:min(860px, 94vw); height:min(86vh, 900px); padding:20px 22px; display:flex; flex-direction:column; gap:10px; text-align:left; }
+  #settings h2 { font-size:1.3rem; }
+  #settings p { margin:0; color:var(--fg-2); font-size:.95rem; line-height:1.55; }
+  #cfgText { flex:1; width:100%; background:#fff; color:var(--fg); border:1px solid rgba(0,68,139,.18); border-radius:10px; font:12px/1.45 ui-monospace, Menlo, monospace; padding:12px; -webkit-user-select:text; user-select:text; }
   #settings .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  #settings button { font-size:14px; padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:#1f2630; color:var(--text); cursor:pointer; }
-  #settings button.primary { background:var(--accent); color:#002833; border-color:transparent; font-weight:700; }
-  #cfgMsg { color:var(--amber); font-size:13px; }
-
-  @media (max-width: 900px) { .card { width:170px; } .card div { font-size:13px; } }
-  /* 가로가 좁은 화면(세로로 든 휴대폰): 카드는 한 줄로 작게, 버튼은 그 아래 3열 격자. [메뉴 접기]로 버튼을 숨길 수 있음 */
-  @media (max-width: 640px) {
-    #debug { top:8px; left:8px; font-size:10px; padding:2px 6px; }
-    #status { top:30px; max-width:calc(100vw - 16px); width:max-content; text-align:center; font-size:14px; padding:6px 12px; border-radius:14px; }
-    #bottom { left:8px; right:8px; bottom:8px; flex-direction:column; align-items:stretch; gap:8px; }
-    #hud { gap:6px; }
-    .card { flex:1; width:auto; min-width:0; padding:6px 8px; border-radius:10px; }
-    .card h3 { font-size:0; margin-bottom:2px; }
-    .card h3 b { font-size:12px; }
-    .card div { font-size:12px; min-height:16px; line-height:1.3; }
-    .gauge { height:5px; margin-top:4px; }
-    .side { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
-    .side button { min-width:0; font-size:13px; padding:9px 4px; }
-    .side .pair { gap:4px; }
-    #btnClear { grid-column:span 2; }
-    #btnMenu { display:block; }
-    .side.collapsed > :not(#btnClear):not(#btnMenu) { display:none; }
-    #recordBar { right:8px; bottom:8px; max-width:calc(100vw - 16px); }
-    #recordBar button { min-width:0; flex:1 1 40%; font-size:14px; padding:10px 8px; }
-    #mapBar { right:8px; left:8px; bottom:8px; }
-    .mapcard { width:auto; }
-  }
-  /* 세로가 낮은 화면(가로로 든 휴대폰): 버튼을 2열로 */
-  @media (max-height: 520px) and (min-width: 641px) {
-    .side { display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; }
-    .side button { min-width:0; font-size:13px; padding:8px 10px; }
-    .card { width:150px; padding:6px 8px; }
-    .card h3 { font-size:0; }
-    .card h3 b { font-size:12px; }
-    .card div { font-size:12px; }
+  #cfgMsg { color:var(--warn); font-weight:600; }
+  #mapMsg { color:var(--warn); font-weight:600; min-height:1.2em; font-size:.92rem; }
+  @media (orientation: portrait) and (max-width: 599px) {
+    #bottom { left:8px; right:8px; bottom:8px; gap:6px; }
+    body.admin #bottom { grid-template-columns:minmax(0, 1fr); }
+    body.admin #bottom > :not(#hud) { grid-column:1; }
+    .corner .btn.small { padding:6px 10px; font-size:.85rem; }
   }
 </style>
 </head>
@@ -121,74 +54,106 @@
   <canvas id="three"></canvas>
 </div>
 
-<div id="start">
-  <h1>RAIM AR 자율주행 · 마커 버전</h1>
-  <p>도로 마커로 위치를 맞추고, 바리케이드 마커를 놓으면 AR 자동차가 감속 후 정지해요.<br>먼저 A4 테스트 시트로 책상에서 시험해 보세요.</p>
-  <a class="bigbtn" id="btnAR" href="ar.html" hidden style="text-decoration:none;background:#3ddc84;color:#002b14">AR 버전으로 시작 (권장)</a>
-  <button class="bigbtn" id="btnCamera">카메라 시작</button>
-  <label class="linkbtn">녹화한 영상 파일로 시험하기<input type="file" id="fileInput" accept="video/*" hidden></label>
-  <p id="startMsg"></p>
-  <p id="sharedMsg" style="color:var(--ok)"></p>
+<!-- ───── 시작 화면 ───── -->
+<div id="start" class="start-screen" lang="ko">
+  <div class="room-bg"></div>
+  <header class="topbar">
+    <span></span>
+    <div class="topbar-right">
+      <span class="admin-badge admin-only">관리자 모드</span>
+      <button class="btn ghost round" id="btnGear" aria-label="설정 (관리자)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg></button>
+    </div>
+  </header>
+  <main class="start-main">
+    <!-- 관람객: 버튼 하나. 누르면 바로 카메라 시작 -->
+    <section class="start-solo">
+      <button class="btn primary start-btn" id="btnCamera">시작하기</button>
+      <p class="start-msg" id="startMsg" aria-live="polite"></p>
+    </section>
+    <section class="admin-card glass admin-only">
+      <div class="row" style="justify-content:space-between">
+        <h2>관리자 · 카메라(마커) 버전</h2>
+        <button class="btn ghost small" id="btnLeaveAdmin">관람 모드로</button>
+      </div>
+      <p class="start-msg ok" id="sharedMsg" aria-live="polite"></p>
+      <div class="row">
+        <button class="btn secondary small" id="btnSettingsStart">설정 열기</button>
+        <label class="btn ghost small">녹화한 영상 파일로 시험<input type="file" id="fileInput" accept="video/*" hidden></label>
+        <a class="btn ghost small" id="btnAR" href="ar.html">AR 버전 열기</a>
+      </div>
+      <p class="muted" style="margin:0;font-size:.92rem;line-height:1.55">카메라를 시작하면 화면 오른쪽 아래에 관리자 버튼(마커 지도·경로 기록·차 크기·속도·도로 높이)이 나와요.
+        먼저 A4 테스트 시트로 책상에서 시험해 볼 수 있어요.</p>
+    </section>
+  </main>
+  <p class="version-tag" id="versionTag"></p>
 </div>
 
-<div id="ui" hidden>
-  <div id="status" class="warn">도로 마커를 화면에 비춰 주세요</div>
-  <div id="debug"></div>
+<!-- ───── 카메라 화면 위 ───── -->
+<div id="ui" hidden lang="ko">
+  <div id="status" class="guide glass solid warn">도로 마커를 화면에 비춰 주세요</div>
+  <div class="corner-left admin-only"><span class="admin-badge">관리자 모드</span><span class="debug-line" id="debug"></span></div>
+  <div class="corner">
+    <button class="btn ghost small" id="btnHome">처음으로</button>
+    <button class="btn ghost small" id="btnFull">전체 화면</button>
+    <button class="btn ghost round" id="btnGearUI" aria-label="설정 (관리자)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg></button>
+  </div>
   <div id="bottom">
-  <div id="hud">
-    <div class="card" id="cardSense"><h3><b>인식</b>무엇이 보이나</h3><div id="hudSense">-</div></div>
-    <div class="card" id="cardJudge"><h3><b>판단</b>내 경로를 막나</h3><div id="hudJudge">-</div></div>
-    <div class="card" id="cardControl"><h3><b>제어</b>어떻게 움직이나</h3><div id="hudControl">-</div><div class="gauge"><div id="speedBar"></div></div></div>
-  </div>
-  <div class="side" id="mainButtons">
-    <button class="primary" id="btnClear">바리케이드 해제</button>
-    <button id="btnMenu" aria-expanded="true">메뉴 접기</button>
-    <button id="btnDetect">인식 표시</button>
-    <button id="btnPath">경로 표시</button>
-    <button id="btnMap">마커 지도 만들기</button>
-    <button id="btnRecord">경로 기록</button>
-    <div class="pair"><button id="carSmaller" aria-label="자동차 작게">차 −</button><button id="carBigger" aria-label="자동차 크게">차 +</button></div>
-    <div class="pair"><button id="speedDown" aria-label="자동차 느리게">속도 −</button><button id="speedUp" aria-label="자동차 빠르게">속도 +</button></div>
-    <div class="pair"><button id="heightDown" aria-label="도로 높이 낮게">높이 −</button><button id="heightUp" aria-label="도로 높이 높게">높이 +</button></div>
-    <button id="btnSettings">설정</button>
-    <button id="btnFull">전체 화면</button>
-  </div>
-  </div>
-  <div id="mapBar" hidden>
-    <div class="mapcard">
-      <h3>마커 지도 만들기</h3>
-      <p>디오라마 테두리를 따라 천천히 한 바퀴 비추세요. 이웃한 마커 두 개가 늘 함께 보이게 하고, 마지막에 처음 마커까지 돌아오면 가장 정확해요.</p>
-      <label>마커 크기(검은 사각형 한 변) <input id="mapSize" type="number" value="8" min="1" max="50" step="0.1"> cm</label>
-      <div id="mapInfo">-</div>
-      <div id="mapMsg"></div>
-      <div class="row">
-        <button id="mapReset">다시 시작</button>
-        <button id="mapCancel">취소</button>
-        <button class="primary" id="mapDone">완료·계산</button>
+    <div id="hud" class="hud-cards">
+      <div class="hud-card glass solid" id="cardSense"><div class="hud-head"><span class="dot">1</span><h3>인식</h3><small>무엇이 보이나</small></div><div class="hud-body" id="hudSense">-</div></div>
+      <div class="hud-card glass solid" id="cardJudge"><div class="hud-head"><span class="dot">2</span><h3>판단</h3><small>길을 막고 있나</small></div><div class="hud-body" id="hudJudge">-</div></div>
+      <div class="hud-card glass solid" id="cardControl"><div class="hud-head"><span class="dot">3</span><h3>제어</h3><small>어떻게 움직이나</small></div><div class="hud-body" id="hudControl">-</div><div class="gauge"><div id="speedBar"></div></div></div>
+    </div>
+    <div class="admin-panel glass solid admin-only" id="mainButtons">
+      <div class="admin-panel-head"><strong style="color:var(--c-301)">관리자</strong><button class="btn ghost small" id="btnLeaveAdminUI">관람 모드로</button></div>
+      <div class="grid">
+        <button class="primary" id="btnClear">바리케이드 해제</button>
+        <button id="btnMenu" aria-expanded="true">메뉴 접기</button>
+        <button id="btnSettings">설정</button>
+        <div class="pair"><button id="carSmaller" aria-label="자동차 작게">차 −</button><button id="carBigger" aria-label="자동차 크게">차 +</button></div>
+        <div class="pair"><button id="speedDown" aria-label="자동차 느리게">속도 −</button><button id="speedUp" aria-label="자동차 빠르게">속도 +</button></div>
+        <div class="pair"><button id="heightDown" aria-label="도로 높이 낮게">높이 −</button><button id="heightUp" aria-label="도로 높이 높게">높이 +</button></div>
+        <button id="btnDetect">인식 표시</button>
+        <button id="btnPath">경로 표시</button>
+        <button id="btnRecord">경로 기록</button>
+        <button id="btnMap">마커 지도 만들기</button>
       </div>
     </div>
-  </div>
-  <div id="recordBar" hidden>
-    <button id="recUndo">되돌리기</button>
-    <button id="recCancel">취소</button>
-    <button id="recAim">조준점 켬</button>
-    <button class="snap" id="recSnap">중앙선 맞추기</button>
-    <button class="primary" id="recDone">완료·저장</button>
+    <div id="mapBar" class="admin-only" hidden>
+      <div class="task-card glass solid">
+        <h3>마커 지도 만들기</h3>
+        <p>디오라마 테두리를 따라 천천히 한 바퀴 비추세요. 이웃한 마커 두 개가 늘 함께 보이게 하고, 마지막에 처음 마커까지 돌아오면 가장 정확해요.</p>
+        <label>마커 크기(검은 사각형 한 변) <input id="mapSize" type="number" value="8" min="1" max="50" step="0.1"> cm</label>
+        <div id="mapInfo" class="muted">-</div>
+        <div id="mapMsg"></div>
+        <div class="row">
+          <button class="btn ghost small" id="mapReset">다시 시작</button>
+          <button class="btn ghost small" id="mapCancel">취소</button>
+          <button class="btn primary small" id="mapDone">완료·계산</button>
+        </div>
+      </div>
+    </div>
+    <div id="recordBar" class="bar-buttons glass solid admin-only" hidden>
+      <button id="recUndo">되돌리기</button>
+      <button id="recCancel">취소</button>
+      <button id="recAim">조준점 켬</button>
+      <button class="snap" id="recSnap">중앙선 맞추기</button>
+      <button class="primary" id="recDone">완료·저장</button>
+    </div>
   </div>
 </div>
 
-<div id="settings" hidden>
-  <div class="box">
-    <h2>설정</h2>
+<div id="settings" class="modal-backdrop" hidden lang="ko">
+  <div class="box glass solid">
+    <h2>설정 (관리자)</h2>
     <p>단위는 cm예요. roadMarkers에는 디오라마에 붙인 마커의 id, 중심 좌표(x, y), 검은 사각형 한 변(size), 마커 위쪽이 향하는 방향(rot, 도)을 적어요. 기본값은 A4 테스트 시트 기준이에요. 이 태블릿에만 저장돼요.</p>
     <textarea id="cfgText" spellcheck="false"></textarea>
     <div class="row">
-      <button class="primary" id="cfgSave">저장</button>
-      <button id="cfgPrint">마커 인쇄</button>
-      <button id="cfgExport">전시 설정 내보내기</button>
-      <button id="cfgShared">전시 설정 다시 불러오기</button>
-      <button id="cfgReset">기본값으로</button>
-      <button id="cfgClose">닫기</button>
+      <button class="btn primary small" id="cfgSave">저장</button>
+      <button class="btn ghost small" id="cfgPrint">마커 인쇄</button>
+      <button class="btn secondary small" id="cfgExport">전시 설정 내보내기</button>
+      <button class="btn ghost small" id="cfgShared">전시 설정 다시 불러오기</button>
+      <button class="btn ghost small" id="cfgReset">기본값으로</button>
+      <button class="btn ghost small" id="cfgClose">닫기</button>
       <span id="cfgMsg"></span>
     </div>
   </div>

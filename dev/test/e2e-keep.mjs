@@ -29,6 +29,7 @@ async function pressAndWatch(page, key, label) {
   const video = new URL('./cam.y4m', import.meta.url).pathname;
   const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', `--use-file-for-fake-video-capture=${video}`] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.goto('http://localhost:8765/index.html');
   await page.evaluate(() => localStorage.clear());
@@ -54,6 +55,7 @@ async function pressAndWatch(page, key, label) {
   const mock = readFileSync(new URL('./xr-mock/mock-webxr.js', import.meta.url), 'utf8');
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
+  await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(`window.__mockScene = 'bar'; window.__mockHold = 3;\n${mock}`);
   await page.goto('http://localhost:8765/ar.html');
