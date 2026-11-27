@@ -138,7 +138,8 @@ let gen = 0; // AR 세션 번호 (끝난 세션의 늦은 결과는 버림)
 let lastSeen = new Map(); // 마커 id → 마지막으로 본 시각
 let showPath = true, showMarkers = true;
 let lastYellow = null; // 인식 표시용: 마지막 영상의 노란 후보와 판정
-const mapping = { active: false, mapper: null, view: null }; // AR 지도 만들기
+// AR 지도 만들기 (setup: 한 바퀴 설치 — 지도 만들기 + 중앙선 찾기를 같이)
+const mapping = { active: false, setup: false, mapper: null, view: null, A0: null, loop: null, finding: false, lastFind: -1e9 };
 let trackingPoor = false;
 const recording = { active: false, pts: [], snapped: null };
 const heightMeasure = { active: false, until: 0, samples: [] };
@@ -244,7 +245,7 @@ function onXRFrame(t, frame) {
     diorama.matrix.set(...roadToWorldMatrix(A));
     diorama.matrixWorldNeedsUpdate = true;
   }
-  diorama.visible = fuser.ready && !mapping.active;
+  diorama.visible = fuser.ready && (!mapping.active || mapping.setup);
   // 차: 바리케이드가 경로를 막으면 감속·정지
   controller.update(dt, P, barricade, clearance());
   carObj.userData.brakeMat.color.set(controller.state === 'drive' ? 0x551111 : 0xff2222);
@@ -261,9 +262,10 @@ function onXRFrame(t, frame) {
   const q = carPoseAt(P, controller.s, carDims().length * 0.6);
   carObj.position.set(q.x, q.y, 0);
   carObj.rotation.set(0, 0, q.heading);
-  carObj.visible = !recording.active && !cfg.pathStale;
-  pathLine.visible = !cfg.pathStale && (showPath || recording.active);
-  markerLayer.visible = showMarkers;
+  carObj.visible = !recording.active && !cfg.pathStale && !mapping.active;
+  pathLine.visible = !cfg.pathStale && (showPath || recording.active) && !mapping.active;
+  markerLayer.visible = showMarkers && !mapping.active;
+  if (mapping.setup && mapping.A0 && !mapping.finding && performance.now() - mapping.lastFind > 3000) findSetupLoop();
   // 경로 카드 위치 표시: 주황 = 확인 중, 초록 = 방금 찍음
   const cm = recording.active ? cardMean(400) : null;
   cardVis.visible = !!cm;
@@ -304,6 +306,10 @@ function collect() {
   if (recording.active && !mapping.active && fuser.ready) {
     const K = intrinsicsFromProjection(job.proj, img.width, img.height);
     acc = { K, pose: liftPose(roadToCv(fuser.result, job.wc), roadH()), area: workArea(0) };
+  } else if (mapping.setup && mapping.A0) {
+    // 한 바퀴 설치: 처음 등록된 마커로 정한 좌표계(A0)로 도로 영상을 모음 (범위는 비추는 대로 넓어짐)
+    const K = intrinsicsFromProjection(job.proj, img.width, img.height);
+    acc = { K, pose: liftPose(roadToCv(mapping.A0, job.wc), roadH()), area: null };
   }
   detectClient.run(img, { yellow: wantYellow, acc }).then((res) => {
     if (inflight === job) inflight = null;
@@ -332,6 +338,7 @@ function handleDetections(job, img, res) {
     reader.feedback(usable.length > 0);
     mapping.mapper.addFrame(usable, K, wc);
     const mp = mapping.mapper;
+    if (mapping.setup && !mapping.A0 && mp.status().confirmed.length) startSetupMosaic();
     mapping.view = {
       w: img.width, h: img.height, t: performance.now(),
       items: usable.map((m) => {
@@ -642,7 +649,15 @@ function updateHud(t) {
   $('cardControl').classList.toggle('hot', controller.state !== 'drive');
   if (now < flashUntil) return;
   let msg, ok = false;
-  if (mapping.active) {
+  if (mapping.setup) {
+    const st = mapping.mapper.status(), L = mapping.loop;
+    msg = !mapping.A0 ? '테두리의 마커가 화면에 들어오게 비추며 걷기 시작하세요 (첫 마커가 등록되면 도로 영상을 모아요)'
+      : `마커 ${st.confirmed.length}개 등록${st.pending.length ? ` (확인 중 ${st.pending.length})` : ''} · ` +
+        (!L ? '도로를 비추며 천천히 한 바퀴 돌아 주세요'
+          : L.ok ? `한 바퀴 찾음 ${(L.length / 100).toFixed(1)}m(초록) · 다 돌았으면 [완료·저장]`
+            : L.pts ? `중앙선 ${Math.round((L.refined || 0) * 100)}% 확인 · 주황 부분 도로를 더 비춰 주세요` : '중앙선 찾는 중 · 계속 돌아 주세요');
+    ok = !!(L && L.ok);
+  } else if (mapping.active) {
     const st = mapping.mapper.status();
     msg = st.refId === null ? '테두리의 마커를 하나씩 1~2초씩 비춰 주세요 (같이 보일 필요 없어요)'
       : `등록 ${st.confirmed.length}개 (${st.confirmed.join(', ')})${st.pending.length ? ` · 확인 중 ${st.pending.map((q) => q.id).join(', ')}` : ''} · 다 비췄으면 [완료·저장]`;
@@ -671,7 +686,8 @@ $('btnClear').onclick = () => { barTracker.clear(); barricade = null; flash('바
 $('btnRealign').onclick = () => { fuser.reset(); roadTracker.reset(); flash('위치를 다시 맞춰요 · 도로 마커를 비춰 주세요'); };
 // ---------- AR 지도 만들기 ----------
 function setMapping(on) {
-  mapping.active = on;
+  if (mapping.setup) setSetup(false);
+  mapping.active = on; mapping.setup = false;
   mapping.view = null;
   if (on) {
     const size = parseFloat($('arMapSize').value) || 8;
@@ -687,13 +703,7 @@ function finishMapping() {
   const st = mp.status();
   if (st.confirmed.length < 2) { flash('마커가 2개 이상 등록돼야 해요 · 다른 마커도 비춰 주세요', 4000); return; }
   const res = mp.solve();
-  const oldSheet = isSheetMap(cfg.roadMarkers);
-  const r = mp.size / (cfg.roadMarkers[0] ? cfg.roadMarkers[0].size : mp.size);
-  if (oldSheet && Math.abs(r - 1) > 0.01) {
-    // A4 시트에서 디오라마로 처음 넘어갈 때만 차 크기·속도를 마커 크기 비율로 (마커 버전과 같은 규칙)
-    for (const k of ['length', 'width', 'height']) cfg.car[k] = +(cfg.car[k] * r).toFixed(2);
-    for (const k of ['cruise', 'brakeDist', 'stopGap', 'accel', 'decel', 'margin']) cfg.drive[k] = +(cfg.drive[k] * r).toFixed(2);
-  }
+  scaleCarFromSheet(mp.size);
   cfg.roadMarkers = res.markers;
   cfg.pathStale = true; // 좌표가 바뀌었으니 이전 경로는 쓸 수 없음
   save();
@@ -707,6 +717,113 @@ function finishMapping() {
   flash(`마커 ${res.markers.length}개 지도 저장 · ${q} · 초록 사각형이 실제 마커에 겹치는지 둘러본 뒤, 도로를 비추고 두 번 탭 → [자동 경로]`, 8000);
 }
 let lastMapResult = null;
+// A4 시트에서 디오라마로 처음 넘어갈 때만 차 크기·속도를 마커 크기 비율로 (마커 버전과 같은 규칙)
+function scaleCarFromSheet(size) {
+  const r = size / (cfg.roadMarkers[0] ? cfg.roadMarkers[0].size : size);
+  if (!isSheetMap(cfg.roadMarkers) || Math.abs(r - 1) <= 0.01) return;
+  for (const k of ['length', 'width', 'height']) cfg.car[k] = +(cfg.car[k] * r).toFixed(2);
+  for (const k of ['cruise', 'brakeDist', 'stopGap', 'accel', 'decel', 'margin']) cfg.drive[k] = +(cfg.drive[k] * r).toFixed(2);
+}
+
+// ---------- 한 바퀴 설치: 마커 지도 + 중앙선 경로를 한 번 걷기로 ----------
+// 걷는 동안 화면에 들어온 마커를 저절로 등록(AR 지도 만들기와 같음)하고, 처음 마커가 등록되면 그 마커로 수평 도로 좌표계(A0)를 정해
+// 도로 영상을 모은다. 3초마다 워커에서 흰 중앙선 고리를 찾아 초록(찾음)·주황(덜 찾음) 선으로 보여 준다.
+const setupGroup = new THREE.Group();
+roadLayer.add(setupGroup);
+function setSetup(on) {
+  setRecording(false);
+  mapping.active = on; mapping.setup = on;
+  mapping.view = null; mapping.A0 = null; mapping.loop = null; mapping.finding = false; mapping.lastFind = -1e9;
+  if (on) {
+    const size = parseFloat($('setupSize').value) || 8;
+    // 걸으며 지나가는 동안만 보이니 4번 보면 등록 (멈춰 비추는 [지도 만들기]는 6번)
+    mapping.mapper = new XRMarkerMapper({ size, minSamples: 4, excludeIds: [...cfg.barricade.markerIds, cfg.pathCard.id] });
+    fuser.reset(); // 기존 지도 위치는 쓰지 않음 (새 좌표계는 처음 등록된 마커로)
+  }
+  clearGroup(setupGroup);
+  $('setupBar').hidden = !on;
+  $('mainButtons').hidden = on;
+  $('hud').hidden = on;
+  drawDetections();
+}
+function startSetupMosaic() {
+  const mp = mapping.mapper;
+  mapping.A0 = mp.solve().align;
+  fuser.seed(mapping.A0); // 설치 중에도 찾은 고리·마커를 제자리에 그리기 위해
+  const c = mp.size / 20;
+  detectClient.resetMosaic({ bounds: { x0: -100, y0: -100, x1: 100, y1: 100 }, cell: c, grow: true });
+  mosaicKey = null; // 끝나면 지도에 맞는 도로 영상으로 다시 시작
+}
+const roadWidthIn = () => parseFloat($('setupRoad').value) || cfg.lane.roadWidth || 30;
+async function findSetupLoop() {
+  mapping.finding = true;
+  const res = await detectClient.findLoop({ roadWidth: roadWidthIn() });
+  mapping.finding = false; mapping.lastFind = performance.now();
+  if (!mapping.setup) return res;
+  mapping.loop = res;
+  refreshSetupVis();
+  return res;
+}
+function refreshSetupVis() {
+  clearGroup(setupGroup);
+  const res = mapping.loop;
+  if (res && res.pts && res.pts.length > 2) {
+    // 중앙선을 확인한 곳은 초록(다 찾았으면) / 하늘색(아직), 이어 채운 곳은 주황 → 주황 쪽을 더 비추면 됨
+    const n = res.pts.length, col = [], pos = [];
+    const ok = new THREE.Color(res.ok ? 0x3ddc84 : 0x38d9ff), weak = new THREE.Color(0xff9f0a);
+    for (let i = 0; i <= n; i++) {
+      const p = res.pts[i % n], c = res.weak && res.weak[i % n] ? weak : ok;
+      pos.push(p[0], p[1], 0.2); col.push(c.r, c.g, c.b);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    setupGroup.add(new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true })));
+  }
+  // 등록된 마커 자리 (실제 마커와 겹치면 좌표가 맞은 것)
+  const st = mapping.mapper.status();
+  if (st.confirmed.length && mapping.A0) {
+    for (const m of mapping.mapper.solve({ align: mapping.A0 }).markers) {
+      const cs = markerCorners(m).map(([x, y]) => new THREE.Vector3(x, y, 0.1 - roadH()));
+      setupGroup.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(cs), new THREE.LineBasicMaterial({ color: 0x38d9ff })));
+    }
+  }
+}
+async function finishSetup() {
+  const mp = mapping.mapper;
+  if (!mapping.A0 || mp.status().confirmed.length < 2) { flash('마커가 2개 이상 등록돼야 해요 · 테두리의 다른 마커도 화면에 들어오게 걸어 주세요', 5000); return; }
+  if (mapping.finding) { flash('중앙선을 계산하는 중이에요 · 잠시 뒤 다시 눌러 주세요', 2000); return; }
+  flash('중앙선 한 바퀴를 계산하는 중…', 3000);
+  const res = await findSetupLoop();
+  if (!res || !res.ok) {
+    flash(!res || !res.pts ? '흰 중앙선을 못 찾았어요 · 도로를 더 가까이·천천히 비추며 한 바퀴 돌아 주세요'
+      : `중앙선을 ${Math.round((res.refined || 0) * 100)}%만 확인했어요 · 주황 부분 도로를 더 비춘 뒤 다시 눌러 주세요`, 6000);
+    return;
+  }
+  const map = mp.solve({ align: mapping.A0 });
+  const A0 = mapping.A0;
+  scaleCarFromSheet(mp.size);
+  cfg.roadMarkers = map.markers;
+  cfg.path = res.pts;
+  cfg.pathStale = false;
+  cfg.lane.roadWidth = roadWidthIn();
+  save();
+  lastMapResult = { ...map, loop: { length: res.length, found: res.found, refined: res.refined } };
+  setSetup(false);
+  rebuildWorld(false);
+  roadTracker.reset();
+  fuser.seed(A0);
+  flash(`설치 완료 · 마커 ${map.markers.length}개 · 경로 ${(res.length / 100).toFixed(2)}m · 다른 태블릿과 쓰려면 [AR 끝내기] → [전시 설정 내보내기]`, 9000);
+}
+$('btnSetup').onclick = () => setSetup(true);
+$('setupReset').onclick = () => setSetup(true);
+$('setupCancel').onclick = () => {
+  setSetup(false);
+  fuser.reset(); roadTracker.reset(); // 설치 중 좌표계(A0)는 버리고 이전 지도로 다시 맞춤
+  rebuildWorld(true);
+  flash('설치를 취소했어요 · 도로 마커를 비추면 이전 지도로 위치를 맞춰요', 4000);
+};
+$('setupDone').onclick = finishSetup;
 $('btnMapAR').onclick = () => setMapping(true);
 $('mapReset').onclick = () => setMapping(true);
 $('mapCancel').onclick = () => setMapping(false);
@@ -723,6 +840,19 @@ $('recUndo').onclick = () => { if (recording.snapped) recording.snapped = null; 
 $('recCancel').onclick = () => setRecording(false);
 $('recSnap').onclick = snapRecording;
 $('recAuto').onclick = autoPath;
+// 경로 기록 중: 탭 없이 흰 중앙선 한 바퀴 찾기 (비춘 도로 영상으로)
+$('recLoop').onclick = async () => {
+  if (laneBusy) return;
+  laneBusy = true;
+  try {
+    flash('중앙선 한 바퀴를 찾는 중…', 3000);
+    const res = await detectClient.findLoop({ roadWidth: cfg.lane.roadWidth || 30 });
+    if (!recording.active) return;
+    lastSnap = res;
+    if (res && res.ok) { recording.snapped = res.pts; refreshRecordVis(); flash(`한 바퀴 찾았어요 · ${(res.length / 100).toFixed(2)}m · 괜찮으면 [완료·저장]`, 5000); }
+    else flash(res && res.pts ? `중앙선을 ${Math.round((res.found || 0) * 100)}%만 찾았어요 · 도로를 한 바퀴 더 비춘 뒤 다시 눌러 주세요` : '흰 중앙선을 못 찾았어요 · 도로를 더 가까이 비춰 주세요', 5000);
+  } finally { laneBusy = false; }
+};
 $('recCard').onclick = () => {
   const m = cardMean(500);
   if (!m) { flash(`경로 카드(마커 ${cfg.pathCard.id})가 안 보여요 · 차선 가운데에 놓고 비춰 주세요`, 3000); return; }
@@ -783,7 +913,8 @@ window.__raimAR = {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,
       carState: controller.state, gap: controller.gap, barricade, barricadeSeenNow, recPts: recording.pts, snapped: recording.snapped, lastSnap, partial: recording.partial, scan: scanCoverage(),
       yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
-      mapping: mapping.active ? mapping.mapper.status() : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
+      mapping: mapping.active ? mapping.mapper.status() : null,
+      setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
       detectMode: detectClient.mode, detMs, gpu: { ...renderer.info.memory } };
   },
 };

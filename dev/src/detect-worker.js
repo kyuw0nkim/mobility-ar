@@ -4,6 +4,7 @@
 // detect-client.js의 runHere()가 워커를 못 쓸 때 같은 일을 메인 스레드에서 한다 (processFrame을 함께 씀).
 import { findYellowClusters } from './barricade-color.js';
 import { RoadMosaic } from './lane.js';
+import { findCenterLoop } from './loop.js';
 
 // 한 프레임 처리. state: {detector, mosaic, covT}. opts: {yellow, acc: {K, pose, area}|null}
 export function processFrame(state, img, opts, AR) {
@@ -24,7 +25,13 @@ if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScop
   const state = { detector: null, mosaic: null, covT: -1e9 };
   self.onmessage = (e) => {
     const d = e.data;
-    if (d.type === 'mosaic') { state.mosaic = new RoadMosaic(d.bounds, d.cell); state.covT = -1e9; return; }
+    if (d.type === 'mosaic') { state.mosaic = new RoadMosaic(d.bounds, d.cell, { grow: !!d.grow }); state.covT = -1e9; return; }
+    if (d.type === 'findLoop') {
+      let res;
+      try { res = state.mosaic ? findCenterLoop(state.mosaic, d.opts) : { ok: false, reason: 'empty' }; } catch (err) { res = { ok: false, reason: 'error', error: String(err && err.message) }; }
+      self.postMessage({ id: d.id, res });
+      return;
+    }
     if (d.type === 'snapshot') {
       const snap = state.mosaic ? state.mosaic.snapshot() : null;
       self.postMessage({ id: d.id, snap }, snap ? [snap.sum.buffer, snap.wsum.buffer] : []);

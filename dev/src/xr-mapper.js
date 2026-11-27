@@ -65,7 +65,8 @@ export class XRMarkerMapper {
   }
 
   // 반환: {markers:[{id,x,y,size,rot}], align:{p,yaw}(도로 → 세계), spreadCm, heightSpreadCm} 또는 null
-  solve() {
+  // align을 주면 그 도로 좌표계로 마커 위치를 냄 (한 바퀴 설치: 처음 마커를 본 순간 정한 좌표계를 끝까지 씀)
+  solve({ align: fixed = null } = {}) {
     const ids = this.order.filter((id) => this.confirmed(id));
     if (ids.length < 1) return null;
     const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s[s.length >> 1]; };
@@ -81,10 +82,10 @@ export class XRMarkerMapper {
     });
     const ref = est[0];
     const h = med(est.map((e) => e.p[1])); // 모든 마커가 같은 높이(도로 면)라고 보고 높이는 중앙값
-    const align = { p: [ref.p[0], h, ref.p[2]], yaw: ref.yaw };
+    const align = fixed || { p: [ref.p[0], h, ref.p[2]], yaw: ref.yaw };
     const markers = est.map((e) => {
       const r = worldToRoad(align, e.p);
-      let rot = ((e.yaw - ref.yaw) * 180) / Math.PI;
+      let rot = ((e.yaw - align.yaw) * 180) / Math.PI;
       rot = ((rot + 540) % 360) - 180;
       return { id: e.id, x: +r[0].toFixed(2), y: +r[1].toFixed(2), size: this.size, rot: +rot.toFixed(2) };
     });

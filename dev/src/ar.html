@@ -49,7 +49,9 @@
   .mapcard label { font-size:14px; }
   .mapcard input { width:64px; font-size:15px; padding:4px 6px; border-radius:6px; border:1px solid var(--line); background:#010409; color:var(--text); }
   #mapStat { font-size:13px; font-weight:600; }
-  .mapcard .row { display:flex; gap:6px; }
+  .mapcard .row { display:flex; gap:6px; align-items:center; }
+  .mapcard .row label { flex:1; font-size:13px; white-space:nowrap; }
+  .mapcard .row input { width:52px; }
   .mapcard .row button { flex:1; font-size:14px; padding:11px 6px; border-radius:10px; border:1px solid var(--line); background:#1f2630; color:var(--text); font-weight:600; }
   .mapcard .row button.primary { background:var(--accent); color:#002833; border-color:transparent; }
   .grid.collapsed > :not(#btnMenu):not(#btnClear):not(#btnRealign) { display:none; }
@@ -98,6 +100,7 @@
       <button id="btnMarkers">인식 표시</button>
       <button id="btnRecord">경로 기록</button>
       <button id="btnMapAR">지도 만들기</button>
+      <button id="btnSetup">한 바퀴 설치</button>
       <button id="btnExit">AR 끝내기</button>
     </div>
     <div id="mapBar" hidden>
@@ -113,11 +116,24 @@
         </div>
       </div>
     </div>
+    <div id="setupBar" hidden>
+      <div class="mapcard">
+        <h3>한 바퀴 설치 (지도 + 경로)</h3>
+        <p>도로를 비추며 테이블 둘레를 천천히 한 바퀴 걸어요. 테두리 마커는 화면에 들어오면 저절로 등록돼요. 고리가 초록이 되면 [완료·저장].</p>
+        <div class="row"><label>마커 <input id="setupSize" type="number" value="8" min="1" max="50" step="0.1"> cm</label><label>도로 폭 <input id="setupRoad" type="number" value="30" min="5" max="200" step="1"> cm</label></div>
+        <div class="row">
+          <button id="setupReset">다시 시작</button>
+          <button id="setupCancel">취소</button>
+          <button class="primary" id="setupDone">완료·저장</button>
+        </div>
+      </div>
+    </div>
     <div id="recordBar" hidden>
       <button id="recUndo">되돌리기</button>
       <button id="recCancel">취소</button>
       <button class="snap" id="recCard">카드 위치 찍기</button>
       <button id="recAuto">자동 경로</button>
+      <button id="recLoop">중앙선 한 바퀴</button>
       <button id="recSnap">차선 맞추기</button>
       <button class="primary" id="recDone">완료·저장</button>
     </div>

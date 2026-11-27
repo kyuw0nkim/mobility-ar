@@ -6,7 +6,9 @@ import { smoothPath, gaussianSmooth, gaussianSmooth1, buildPath } from './logic.
 // ---------- 도로 평면 영상 (위에서 본 밝기 지도) ----------
 export class RoadMosaic {
   // bounds: {x0,y0,x1,y1} (cm), cell: 칸 크기 (cm)
-  constructor(bounds, cell) {
+  // grow: true면 비춘 곳이 범위 밖이면 범위를 넓힌다 (디오라마 크기를 모를 때: 한 바퀴 설치). maxCells: 넓힐 때 칸 수 한도
+  constructor(bounds, cell, { grow = false, maxCells = 2000000 } = {}) {
+    this.grow = grow; this.maxCells = maxCells;
     let c = cell;
     const span = (b) => Math.max(1, Math.ceil((b.x1 - b.x0) / c)) * Math.max(1, Math.ceil((b.y1 - b.y0) / c));
     while (span(bounds) > 1500000) c *= 1.25; // 메모리 한도 (매 프레임에는 화면에 보이는 칸만 계산)
@@ -80,6 +82,20 @@ export class RoadMosaic {
         const x = (Hi[0] * u + Hi[1] * v + Hi[2]) / w, y = (Hi[3] * u + Hi[4] * v + Hi[5]) / w;
         xa = Math.min(xa, x); xb = Math.max(xb, x); ya = Math.min(ya, y); yb = Math.max(yb, y);
       }
+      if (this.grow) {
+        // 넓히기는 한 칸이 영상에서 1픽셀 이상인 가까운 곳까지만 (멀리 흐린 곳 때문에 쓸데없이 커지지 않게)
+        const wG = 1 / (f * c);
+        const pg = clipHalfPlane(poly, (u, v) => Hi[6] * u + Hi[7] * v + Hi[8] - wG);
+        if (pg.length) {
+          let ga = Infinity, gb = -Infinity, gc = Infinity, gd = -Infinity;
+          for (const [u, v] of pg) {
+            const w = Hi[6] * u + Hi[7] * v + Hi[8];
+            const x = (Hi[0] * u + Hi[1] * v + Hi[2]) / w, y = (Hi[3] * u + Hi[4] * v + Hi[5]) / w;
+            ga = Math.min(ga, x); gb = Math.max(gb, x); gc = Math.min(gc, y); gd = Math.max(gd, y);
+          }
+          this.growTo(ga, gc, gb, gd);
+        }
+      }
       i0 = Math.max(0, Math.floor((xa - this.x0) / c) - 1); i1 = Math.min(this.nx - 1, Math.ceil((xb - this.x0) / c) + 1);
       j0 = Math.max(0, Math.floor((ya - this.y0) / c) - 1); j1 = Math.min(this.ny - 1, Math.ceil((yb - this.y0) / c) + 1);
     }
@@ -111,6 +127,36 @@ export class RoadMosaic {
     }
     if (used) this.frames++;
     return used;
+  }
+
+  // 범위를 (x0,y0)~(x1,y1)까지 넓히기 (한 번에 넉넉히 50cm 더). 칸 수 한도를 넘으면 넓히지 않음
+  growTo(x0, y0, x1, y1) {
+    const c = this.cell, X1 = this.x0 + this.nx * c, Y1 = this.y0 + this.ny * c;
+    if (x0 >= this.x0 && y0 >= this.y0 && x1 <= X1 && y1 <= Y1) return false;
+    const m = 50;
+    const nx0 = x0 < this.x0 ? this.x0 - Math.ceil((this.x0 - x0 + m) / c) * c : this.x0;
+    const ny0 = y0 < this.y0 ? this.y0 - Math.ceil((this.y0 - y0 + m) / c) * c : this.y0;
+    const nX1 = Math.max(X1, x1 + m), nY1 = Math.max(Y1, y1 + m);
+    const nx = Math.ceil((nX1 - nx0) / c - 1e-9), ny = Math.ceil((nY1 - ny0) / c - 1e-9);
+    if (nx * ny > this.maxCells) return false;
+    const di = Math.round((this.x0 - nx0) / c), dj = Math.round((this.y0 - ny0) / c);
+    const sum = new Float32Array(nx * ny), wsum = new Float32Array(nx * ny);
+    for (let j = 0; j < this.ny; j++) {
+      sum.set(this.sum.subarray(j * this.nx, (j + 1) * this.nx), (j + dj) * nx + di);
+      wsum.set(this.wsum.subarray(j * this.nx, (j + 1) * this.nx), (j + dj) * nx + di);
+    }
+    Object.assign(this, { x0: nx0, y0: ny0, nx, ny, sum, wsum });
+    return true;
+  }
+  // 본 적 있는 칸들을 덮는 사각형 (도로 좌표) 또는 null
+  seenBounds() {
+    let i0 = Infinity, i1 = -1, j0 = Infinity, j1 = -1;
+    for (let j = 0; j < this.ny; j++) for (let i = 0; i < this.nx; i++) if (this.wsum[j * this.nx + i] > 0) {
+      if (i < i0) i0 = i; if (i > i1) i1 = i; if (j < j0) j0 = j; if (j > j1) j1 = j;
+    }
+    if (i1 < 0) return null;
+    const c = this.cell;
+    return { x0: this.x0 + i0 * c, y0: this.y0 + j0 * c, x1: this.x0 + (i1 + 1) * c, y1: this.y0 + (j1 + 1) * c };
   }
 
   // 도로 좌표 (x,y)의 밝기. 본 적 없으면 NaN
