@@ -176,7 +176,7 @@ function longestRun(a) { // 순환 배열에서 가장 긴 NaN 연속 길이
 // 반환: {ok, pts(닫힌 고리, 도로 좌표), length, found(각도 중 중앙선을 찾은 비율), refined(다듬기에서 찾은 비율), maxGapCm, reason}
 // 도로 폭을 실제보다 넓게 잡으면 차로 양옆의 흰 바닥까지 '차로'로 봐서 약해지므로, 안 되면 좁혀서 한 번 더
 export function findCenterLoop(mosaic, opts = {}) {
-  const W = opts.roadWidth || 30;
+  const W = opts.roadWidth || 24;
   let best = null;
   for (const k of [1, 0.7]) {
     const r = findOnce(mosaic, { ...opts, roadWidth: W * k });
@@ -186,7 +186,7 @@ export function findCenterLoop(mosaic, opts = {}) {
   return best;
 }
 function findOnce(mosaic, opts) {
-  const roadW = opts.roadWidth || 30;
+  const roadW = opts.roadWidth || 24;
   const b = mosaic.seenBounds ? mosaic.seenBounds() : { x0: mosaic.x0, y0: mosaic.y0, x1: mosaic.x0 + mosaic.nx * mosaic.cell, y1: mosaic.y0 + mosaic.ny * mosaic.cell };
   if (!b) return { ok: false, reason: 'empty' };
   const g = Math.max(mosaic.cell, roadW / 30);
@@ -316,7 +316,7 @@ function stripeCentroid(get, k, cwN, dark) {
 // 탭으로 찍은 고리(대충 중앙선 위)를 흰 중앙선에 붙이기: 탭 사이 곡선까지 법선 단면으로 다듬는다.
 // 탭 근처(roadWidth의 0.35배 안)만 찾으니 엉뚱한 도로로 가지 않는다.
 // 반환: {ok(확인한 비율 70% 이상), pts, weak, refined, length}
-export function refineAlongStripe(mosaic, taps, { roadWidth = 30 } = {}) {
+export function refineAlongStripe(mosaic, taps, { roadWidth = 24 } = {}) {
   if (!taps || taps.length < 3) return { ok: false, reason: 'short' };
   const r = refineRing(mosaic, taps, roadWidth, null, [roadWidth * 0.35, roadWidth * 0.15]);
   return { ...r, ok: r.refined >= 0.7, reason: r.refined >= 0.7 ? null : 'weak' };
@@ -327,7 +327,7 @@ export function refineAlongStripe(mosaic, taps, { roadWidth = 30 } = {}) {
 //  - 이 방향과 엇갈리는 줄(주차선·횡단보도처럼 가로지르는 선)은 빼고
 //  - 이 선에서 옆으로 멀리 떨어진 후보(도로 위 흰 기둥이 바닥에 비친 자국 등)는 거의 고르지 않는다
 // 반환: {ok, x, y, dist(옮긴 거리), score} — 못 찾으면 ok: false
-export function snapToStripe(mosaic, p, { roadWidth = 30, radius = null, guide = null } = {}) {
+export function snapToStripe(mosaic, p, { roadWidth = 24, radius = null, guide = null } = {}) {
   const dir = guide ? guide.dir : null;
   const R = radius ?? roadWidth * 0.3, c = mosaic.cell;
   const { cwN, laneN } = stripeSize(roadWidth, c);

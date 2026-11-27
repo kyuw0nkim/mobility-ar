@@ -41,14 +41,14 @@ for (const [label, sd, bias] of [['조준점 ±1cm', 1, 0], ['손가락(태블�
   // 앱과 같이: 붙은 점만으로 다음 점을 예상하고, 못 붙은(주황) 점은 [중앙선 맞추기]에서 뺌
   const snapped = [], okPts = [];
   for (const p of taps) {
-    const r = snapToStripe(m, p, { roadWidth: 30, guide: travelGuide(okPts, p) });
+    const r = snapToStripe(m, p, { roadWidth: 24, guide: travelGuide(okPts, p) });
     snapped.push(r.ok ? [r.x, r.y] : p);
     if (r.ok) okPts.push(snapped[snapped.length - 1]);
   }
   const nSnap = okPts.length;
   const t1 = performance.now();
-  const refRaw = refineAlongStripe(m, taps, { roadWidth: 30 });
-  const refSnap = refineAlongStripe(m, nSnap >= taps.length * 0.5 ? okPts : snapped, { roadWidth: 30 });
+  const refRaw = refineAlongStripe(m, taps, { roadWidth: 24 });
+  const refSnap = refineAlongStripe(m, nSnap >= taps.length * 0.5 ? okPts : snapped, { roadWidth: 24 });
   console.log(`[${label}]`);
   console.log(`  ① 탭 그대로            : ${err(taps)}`);
   console.log(`  ② 탭마다 붙이기         : 붙은 점 ${err(okPts)} (붙음 ${nSnap}/${taps.length}, 탭 하나 ${((t1 - t0) / taps.length).toFixed(0)}ms)`);

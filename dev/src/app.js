@@ -479,7 +479,7 @@ function snapRecording() {
   if (recording.pts.length < 4) { flash('점을 4개 이상 찍은 뒤 눌러 주세요'); return; }
   const nOk = recording.pts.filter((p) => tapState.get(p) === 'ok').length;
   const base = nOk >= 4 && nOk >= recording.pts.length * 0.5 ? recording.pts.filter((p) => tapState.get(p) !== 'miss') : recording.pts;
-  const res = centerLineOn(cfg) ? refineAlongStripe(mosaic, base, { roadWidth: cfg.lane.roadWidth || 30 }) : { ok: false };
+  const res = centerLineOn(cfg) ? refineAlongStripe(mosaic, base, { roadWidth: cfg.lane.roadWidth || 24 }) : { ok: false };
   if (res.ok) {
     lastSnap = { ...res, method: 'stripe' };
     recording.snapped = res.pts; recording.snapWeak = res.weak;
@@ -521,7 +521,7 @@ stage.addEventListener('pointerdown', (e) => {
   const p = aimOn ? screenToTable(rect.left + rect.width / 2, rect.top + rect.height / 2) : screenToTable(e.clientX, e.clientY);
   if (!p) return;
   const entry = [+p[0].toFixed(2), +p[1].toFixed(2)];
-  const roadWidth = cfg.lane.roadWidth || 30;
+  const roadWidth = cfg.lane.roadWidth || 24;
   const guide = travelGuide(recording.pts.filter((q) => tapState.get(q) === 'ok'), entry);
   if (centerLineOn(cfg)) {
     const r = mosaic ? snapToStripe(mosaic, entry, { roadWidth, guide }) : { ok: false };

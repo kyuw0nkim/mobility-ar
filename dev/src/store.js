@@ -9,10 +9,22 @@ export function mergeDeep(base, over) {
   for (const k of Object.keys(over || {})) out[k] = k in base ? mergeDeep(base[k], over[k]) : over[k];
   return out;
 }
+// 예전 기본값이 그대로 저장돼 있으면 새 기본값을 쓰도록 지움 (사람이 바꾼 값은 그대로 둠)
+//  - 바리케이드: 예전 기본(A4 종이 바리케이드 10×5) → 전시용 레고 바리케이드 17×11, 줄무늬 패널 12×6
+//  - 중앙선 찾기 도로 폭: 예전 기본 30 → 24 (검은 차로 바깥 끝끼리)
+export function migrateStored(c) {
+  if (!c || typeof c !== 'object') return c;
+  const b = c.barricade;
+  if (b && b.width === 10 && b.height === 5 && (b.colorHeight ?? null) === null && (b.colorPanelHeight ?? null) === null) {
+    delete b.width; delete b.height; delete b.colorHeight; delete b.colorPanelHeight; delete b.colorSizeRange;
+  }
+  if (c.lane && c.lane.roadWidth === 30) delete c.lane.roadWidth;
+  return c;
+}
 export function loadConfig() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return mergeDeep(clone(DEFAULT_CONFIG), JSON.parse(raw));
+    if (raw) return mergeDeep(clone(DEFAULT_CONFIG), migrateStored(JSON.parse(raw)));
   } catch (e) { /* 저장소 사용 불가 */ }
   return clone(DEFAULT_CONFIG);
 }
@@ -58,7 +70,7 @@ export async function loadShared(cfg, { force = false } = {}) {
   let applied = null;
   try { applied = localStorage.getItem(APPLIED_KEY); } catch (e) { /* 무시 */ }
   if (!force && applied === shared.savedAt) return { status: 'same', shared };
-  const next = applyShared(cfg, shared);
+  const next = applyShared(cfg, migrateStored(clone(shared)));
   storeConfig(next);
   try { localStorage.setItem(APPLIED_KEY, shared.savedAt); } catch (e) { /* 무시 */ }
   return { status: 'applied', cfg: next, shared };
