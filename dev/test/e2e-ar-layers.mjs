@@ -16,7 +16,7 @@ for (const lite of ['1', '0']) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = 3; window.__mockDepth = 1; window.__mockLayers = 1; window.__raimAutoAdmin = '4300';\n${mock}`);
-  await page.goto(`http://localhost:8765/ar.html?lite=${lite}`);
+  await page.goto(`http://localhost:8765/index.html?lite=${lite}`);
   await page.evaluate(({ markers, path }) => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: markers, path, pathStale: false })); localStorage.setItem('raim-ar-lite-depth', '1'); }, { markers: MARKERS, path: truthLoop(4) });
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('btnStart').disabled);

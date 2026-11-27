@@ -53,7 +53,8 @@ export function disposeObject(obj) {
   if (!obj) return;
   const seen = new Set();
   obj.traverse((o) => {
-    for (const r of [o.geometry, ...(Array.isArray(o.material) ? o.material : [o.material])]) {
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const r of [o.geometry, ...mats, ...mats.map((m) => m && m.map)]) {
       if (r && r.dispose && !seen.has(r)) { seen.add(r); r.dispose(); }
     }
   });

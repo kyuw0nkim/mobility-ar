@@ -4,6 +4,8 @@
 // window.__mockDepth = true면 깊이 인식(depth-sensing, cpu-optimized)도 줌: depth-<장면>.bin이 있으면 그 깊이,
 //   window.__mockDepthFn(nx, ny) → m 를 정하면 그 함수로 (nx, ny: 화면 정규화 좌표, 왼쪽 위 0,0)
 // window.__coverageTB: 프레임마다 AR 층의 [화면 위쪽 절반, 아래쪽 절반] 픽셀 수, window.__mockSnapshot(): 카메라 영상 + AR 층 합성 그림(dataURL)
+// 기존 AR 시험은 [시작하기]로 바로 AR (도안 스캔 단계 건너뜀). 스캔 시험은 window.__raimSkipScan = false
+if (window.__raimSkipScan === undefined) window.__raimSkipScan = true;
 (() => {
   let data = null;
   async function load() {

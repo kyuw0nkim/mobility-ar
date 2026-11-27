@@ -13,7 +13,9 @@ import {
   smoothPath, buildPath, carPoseAt, CarController, BarricadeTracker, blocksPath,
 } from './logic.js';
 import { loadConfig, storeConfig, loadShared, downloadShared, sharedLabel } from './store.js';
-import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
+import { makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
+import { makeDrawnCar, defaultCarCanvas, canvasTexture } from './car-model.js';
+import { createCarFlow } from './car-flow.js';
 import { isSheetMap } from './config.js';
 import {
   intrinsicsFromProjection, worldFromCv, levelEstimate, AlignmentFuser, roadToWorldMatrix, roadToCv, rayToRoad, worldToRoad,
@@ -57,7 +59,7 @@ const inArea = (a, x, y) => x > a.x0 && x < a.x1 && y > a.y0 && y < a.y1;
 // ---------- 3D ----------
 // 가벼운 모드 (기본 켬): 보급형 태블릿(갤럭시 탭 A 등)이 버티도록 부하를 줄임 — 가장자리 다듬기(안티에일리어싱) 끔,
 // AR 화면 해상도 0.5배, 인식 초당 3번(위치 맞추기 전 6번, 지도·경로 만들 때 4번), 깊이 인식(가림 처리) 안 함, 차 재질 단순화, 화면 글 갱신 0.3초마다.
-// 시작 화면 관리자 카드의 [가벼운 모드]로 바꾸거나 ar.html?lite=0 / ?lite=1 (이 기기에 저장)
+// 시작 화면 관리자 카드의 [가벼운 모드]로 바꾸거나 주소 뒤에 ?lite=0 / ?lite=1 (이 기기에 저장)
 const LITE = (() => {
   const q = new URLSearchParams(location.search).get('lite');
   try {
@@ -113,16 +115,36 @@ let barricade = null; // 추적 중인 바리케이드 {x, y, dx, dy, width} (�
 let barricadeSeenNow = false;
 const clearance = () => clearanceOf(cfg);
 const markerVis = new Map();
-
-// 가벼운 모드: 물리 기반 재질(MeshStandard) → 단순 조명 재질(Lambert). 색은 그대로, 셰이더 준비·그리기가 훨씬 가벼움
-function simplifyMaterials(obj) {
-  obj.traverse((o) => {
-    if (!o.isMesh || !o.material || !o.material.isMeshStandardMaterial) return;
-    const m = o.material;
-    o.material = new THREE.MeshLambertMaterial({ color: m.color, transparent: m.transparent, opacity: m.opacity });
-    m.dispose();
-  });
+// 나만의 차: 관람객이 스캔한 도안(없으면 기본 그림)을 입힌 차. 태블릿이 차에 가까이 가면 지붕이 사라지고 실내가 보임
+let carFlow = null; // 스캔·미리보기 화면 (아래에서 만듦)
+let defaultCanvas = null, defaultColor = null;
+let peek = 0; // 지붕 열림 0~1 (부드럽게 따라감)
+function makeArCar() {
+  let cv = carFlow && carFlow.canvas;
+  if (!cv) {
+    if (!defaultCanvas || defaultColor !== cfg.car.color) { defaultColor = cfg.car.color; defaultCanvas = defaultCarCanvas(cfg.car.color); }
+    cv = defaultCanvas;
+  }
+  const car = makeDrawnCar(carDims(), canvasTexture(cv), { lite: LITE });
+  car.userData.setOpen(peek);
+  return car;
 }
+function replaceCar() {
+  const vis = carObj ? carObj.visible : false;
+  disposeObject(carObj);
+  carObj = makeArCar();
+  carObj.visible = vis;
+  roadLayer.add(carObj);
+}
+// 지붕이 열리는 거리(m): 차 길이에 맞춰 (설정 car.peekNear·peekFar로 바꿀 수 있음)
+function peekRange() {
+  const Lm = carDims().length * 0.01;
+  const near = cfg.car.peekNear ?? Math.max(0.25, Lm * 2.2);
+  const far = cfg.car.peekFar ?? near + Math.max(0.12, Lm * 1.5);
+  return { near, far: Math.max(far, near + 0.02) };
+}
+const carWorld = new THREE.Vector3();
+
 // keepProgress: 차 크기·도로 높이만 바뀐 경우(같은 지도·경로). 차 위치와 추적 중인 바리케이드를 그대로 둔다
 // (바리케이드를 잊으면, 화면 밖에서 '기억 중'이던 바리케이드를 차가 그냥 지나감)
 function rebuildWorld(keepProgress = true) {
@@ -130,10 +152,7 @@ function rebuildWorld(keepProgress = true) {
   P = buildPath(smoothPath(cfg.path, true, 0.5, cfg.car.length * 0.3), true);
   controller = new CarController(driveOpts());
   if (keepProgress) controller.s = frac * P.length;
-  disposeObject(carObj);
-  carObj = makeCar(carDims());
-  if (LITE) simplifyMaterials(carObj);
-  roadLayer.add(carObj);
+  replaceCar();
   disposeObject(pathLine);
   pathLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(P.pts.map((p) => new THREE.Vector3(p[0], p[1], 0.05))),
     new THREE.LineBasicMaterial({ color: 0x38d9ff, transparent: true, opacity: 0.8 }));
@@ -186,6 +205,7 @@ let trackingPoor = false;
 const recording = { active: false, pts: [], snapped: null };
 const heightMeasure = { active: false, until: 0, samples: [] };
 let flashUntil = 0;
+let lastPeekDist = null;
 let lastSnap = null;
 
 // ---------- 시작 화면 ----------
@@ -242,9 +262,12 @@ function setStartButton(state, label) {
   startState = state;
   $('btnStart').disabled = state !== 'idle';
   $('btnStart').textContent = label || '시작하기';
+  $('btnGo').disabled = state !== 'idle';
+  $('btnGo').textContent = label || '이 차로 달리기';
 }
 function startFailed(msg) {
   $('startMsg').textContent = msg;
+  $('goMsg').textContent = msg;
   setStartButton('idle');
   runLog.startNote(msg);
 }
@@ -261,6 +284,7 @@ async function startAR() {
   const my = ++startAttempt;
   setStartButton('starting', 'AR 시작 중…');
   $('startMsg').textContent = '';
+  $('goMsg').textContent = '';
   const t0 = performance.now();
   runLog.startNote(null);
   // 시간이 지나도 안 열리면 포기 (그 뒤에 열리면 아래에서 바로 닫음)
@@ -343,6 +367,9 @@ async function enterAR() {
   fuser.reset(); roadTracker.reset();
   diorama.visible = false;
   lastT = null;
+  peek = 0; lastPeekDist = null;
+  if (carFlow) carFlow.leave();
+  replaceCar();
   $('start').hidden = true;
   $('ui').hidden = false;
   if (cfg.pathStale) flash('경로가 없어요 · 위치가 맞으면 [경로 기록]으로 만들어 주세요', 5000);
@@ -382,6 +409,8 @@ function onEnd() {
   setRecording(false);
   $('ui').hidden = true;
   $('start').hidden = false;
+  // 다음 관람객은 새 도안으로 (기본 차로 돌려 둠)
+  if (carFlow) carFlow.reset();
   // 방금 끝난 AR을 ARCore가 정리할 시간 (바로 누르면 요청이 멈추거나 거절됨)
   endedAt = performance.now();
   setStartButton('cooldown', '잠시만요…');
@@ -421,7 +450,7 @@ function onXRFrame(t, frame) {
   diorama.visible = fuser.ready && (!mapping.active || mapping.setup);
   // 차: 바리케이드가 경로를 막으면 감속·정지
   controller.update(dt, P, barricade, clearance());
-  carObj.userData.brakeMat.color.set(controller.state === 'drive' ? 0x551111 : 0xff2222);
+  carObj.userData.setBrake(controller.state !== 'drive');
   if (barricade) {
     barVis.group.visible = true;
     barVis.group.position.set(barricade.x, barricade.y, cfg.barricade.height / 2);
@@ -436,6 +465,17 @@ function onXRFrame(t, frame) {
   carObj.position.set(q.x, q.y, 0);
   carObj.rotation.set(0, 0, q.heading);
   carObj.visible = !recording.active && !cfg.pathStale && !mapping.active;
+  // 태블릿(카메라)이 차에 가까이 오면 지붕을 열어 실내를 보여 줌
+  if (pose && carObj.visible && diorama.visible) {
+    carObj.getWorldPosition(carWorld);
+    const p = pose.views[0].transform.position;
+    const dist = Math.hypot(p.x - carWorld.x, p.y - carWorld.y, p.z - carWorld.z);
+    const { near, far } = peekRange();
+    const target = Math.min(1, Math.max(0, (far - dist) / (far - near)));
+    peek += (target - peek) * Math.min(1, dt * 5);
+    lastPeekDist = dist;
+  } else peek += (0 - peek) * Math.min(1, dt * 5);
+  carObj.userData.setOpen(peek);
   pathLine.visible = !cfg.pathStale && (showPath || recording.active) && !mapping.active;
   markerLayer.visible = showMarkers && gate.on && !mapping.active;
   if (mapping.setup && mapping.A0 && !mapping.finding && performance.now() - mapping.lastFind > 3000) findSetupLoop();
@@ -960,7 +1000,9 @@ function updateHud(t) {
 }
 
 // ---------- 버튼 ----------
-$('btnStart').onclick = startAR;
+// 관람객: [시작하기] → 도안 스캔 → 미리보기 → [이 차로 달리기]. (시험은 window.__raimSkipScan이면 바로 AR)
+carFlow = createCarFlow({ getAR: () => AR, carColor: () => cfg.car.color, onRun: () => startAR(), onBack: () => {} });
+$('btnStart').onclick = () => (window.__raimSkipScan ? startAR() : carFlow.open());
 $('btnExit').onclick = () => { if (session) session.end(); };
 $('btnClear').onclick = () => { barTracker.clear(); barricade = null; flash('바리케이드를 해제했어요', 1500); };
 $('btnRealign').onclick = () => { fuser.reset(); roadTracker.reset(); flash('위치를 다시 맞춰요 · 도로 마커를 비춰 주세요'); };
@@ -1237,6 +1279,9 @@ window.__raimAR = {
   pathLength: () => P.length,
   detections: () => detCount,
   injectFrameError: () => { injectError = true; }, // 시험: 다음 프레임에서 오류
+  carFlow: () => carFlow,
+  peek: () => ({ open: carObj.userData.open, dist: lastPeekDist, ...peekRange() }),
+  setPeekRange: (near, far) => { cfg.car.peekNear = near; cfg.car.peekFar = far; }, // 시험: 지붕 열리는 거리(m), 저장 안 함
   carMaterials: () => { const a = []; carObj.traverse((o) => { if (o.isMesh) a.push(o.material.type); }); return a; },
   get state() {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,

@@ -15,7 +15,7 @@ const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=sw
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = 3; window.__raimStartTimeout = 3000;\n${mock}`);
-await page.goto('http://localhost:8765/ar.html?lite=1');
+await page.goto('http://localhost:8765/index.html?lite=1');
 await page.evaluate(({ markers, path }) => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: markers, path, pathStale: false })); }, { markers: MARKERS, path: truthLoop(4) });
 await page.reload();
 const btn = () => page.evaluate(() => ({ text: document.getElementById('btnStart').textContent, disabled: document.getElementById('btnStart').disabled, msg: document.getElementById('startMsg').textContent, inAR: document.getElementById('start').hidden }));

@@ -4,7 +4,7 @@ const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome
   defaultViewport: { width: 1280, height: 800 } });
 const page = await browser.newPage();
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-await page.goto('http://localhost:8765/index.html');
+await page.goto('http://localhost:8765/marker.html');
 await page.click('#btnCamera'); await new Promise((r) => setTimeout(r, 1000));
 await page.click('#btnSettings');
 const txt = await page.$eval('#cfgText', (e) => e.value);

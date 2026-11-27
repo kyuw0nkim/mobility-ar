@@ -1,5 +1,6 @@
-// 단일 HTML 파일로 빌드 (외부 네트워크 없이 동작): dist/index.html(마커 버전), dist/ar.html(AR 버전)
-// node build.mjs --publish 이면 저장소 맨 위 폴더(사이트로 배포되는 곳)의 index.html·ar.html도 바꾼다
+// 단일 HTML 파일로 빌드 (외부 네트워크 없이 동작): dist/index.html(AR 버전 = 사이트 첫 화면), dist/marker.html(마커 버전)
+// node build.mjs --publish 이면 저장소 맨 위 폴더(사이트로 배포되는 곳)의 index.html·marker.html도 바꾼다
+// (예전 주소 /ar.html은 vercel.json에서 첫 화면(/)으로 보냄)
 import { build } from 'esbuild';
 import { readFileSync, writeFileSync, mkdirSync, copyFileSync, readdirSync } from 'node:fs';
 
@@ -33,7 +34,7 @@ const ASSETS = [['node_modules/pretendard/dist/web/variable/woff2/PretendardVari
   ...readdirSync('assets').map((f) => [`assets/${f}`, f])];
 for (const [src, name] of ASSETS) copyFileSync(src, `dist/assets/${name}`);
 
-for (const [entry, page, out, worker] of [['src/app.js', 'src/index.html', 'dist/index.html', false], ['src/ar-app.js', 'src/ar.html', 'dist/ar.html', true]]) {
+for (const [entry, page, out, worker] of [['src/app.js', 'src/index.html', 'dist/marker.html', false], ['src/ar-app.js', 'src/ar.html', 'dist/index.html', true]]) {
   const appJs = await bundle(entry);
   let html = readFileSync(page, 'utf8');
   html = html.replace('/*THEME*/', () => theme);
@@ -45,8 +46,8 @@ for (const [entry, page, out, worker] of [['src/app.js', 'src/index.html', 'dist
 }
 
 if (process.argv.includes('--publish')) {
-  for (const f of ['index.html', 'ar.html']) copyFileSync(`dist/${f}`, `../${f}`);
+  for (const f of ['index.html', 'marker.html']) copyFileSync(`dist/${f}`, `../${f}`);
   mkdirSync('../assets', { recursive: true });
   for (const [, name] of ASSETS) copyFileSync(`dist/assets/${name}`, `../assets/${name}`);
-  console.log('../index.html, ../ar.html, ../assets/ 갱신');
+  console.log('../index.html(AR), ../marker.html(마커), ../assets/ 갱신');
 }
