@@ -53,6 +53,7 @@
     constructor(opts = {}) {
       super();
       this.renderState = { baseLayer: null, depthNear: 0.1, depthFar: 1000 };
+      if (window.__mockLayers) this.renderState.layers = []; // WebXR 층(layers)을 지원하는 Chrome 흉내: three.js가 XRProjectionLayer + binding을 씀
       this.enabledFeatures = ['local', 'viewer', 'camera-access', 'hit-test', 'dom-overlay'];
       this.environmentBlendMode = 'alpha-blend';
       this.inputSources = [];
@@ -145,7 +146,23 @@
     }
   }
   class FakeBinding {
-    constructor(session, gl) { this.gl = gl; this.tex = gl.createTexture(); }
+    constructor(session, gl) { this.gl = gl; this.session = session; this.tex = gl.createTexture(); }
+    // WebXR 층 흉내 (window.__mockLayers): 색·깊이 텍스처 한 벌
+    createProjectionLayer(init = {}) {
+      const gl = this.gl, w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const color = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, color); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+      let depth = null;
+      if (init.depthFormat) { depth = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, depth); gl.texStorage2D(gl.TEXTURE_2D, 1, init.depthFormat, w, h); }
+      gl.bindTexture(gl.TEXTURE_2D, null);
+      return { textureWidth: w, textureHeight: h, ignoreDepthValues: false, color, depth, fixedFoveation: 0 };
+    }
+    getViewSubImage(layer) { return { colorTexture: layer.color, depthStencilTexture: layer.depth, viewport: { x: 0, y: 0, width: layer.textureWidth, height: layer.textureHeight } }; }
+    // 실제 Chrome처럼: CPU 방식 깊이 세션에서 GPU 방식 깊이를 읽으면 오류
+    getDepthInformation() {
+      if (this.session && this.session.depthUsage !== 'gpu-optimized') throw new DOMException('Depth sensing usage is not gpu-optimized', 'InvalidStateError');
+      return null;
+    }
     getCameraImage(cam) {
       const gl = this.gl, { W, H } = data.meta;
       const px = data.buf.subarray(cam._i * W * H * 4, (cam._i + 1) * W * H * 4);

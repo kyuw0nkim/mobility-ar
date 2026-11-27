@@ -32,6 +32,13 @@ export class RunLog {
     c.frames = 0; c.gapMax = 0; c.js = 0; c.t0 = now;
     this.save();
   }
+  // 오류 등 여러 번 생길 수 있는 일 (최근 5개)
+  note(msg) {
+    if (!this.d) return;
+    (this.d.notes = this.d.notes || []).push(`${((performance.now() - this.t0) / 1000).toFixed(1)}초 ${msg}`);
+    if (this.d.notes.length > 5) this.d.notes.shift();
+    this.save();
+  }
   end() {
     if (!this.d) return;
     this.d.ended = true;
@@ -47,11 +54,13 @@ export class RunLog {
     try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { d = null; }
     if (!d) return '';
     const when = new Date(d.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    const names = { camera: '카메라 영상', detect: '첫 인식', aligned: '위치 맞춤', depth: '깊이 인식', car: '차 보임' };
+    const names = { camera: '카메라 영상', detect: '첫 인식', aligned: '위치 맞춤', depth: '깊이 인식', car: '차 보임', error: '첫 오류' };
     const ev = d.ev.map(([n, s, note]) => `${names[n] || n} ${s}초${note ? `(${note})` : ''}`).join(' · ') || '아무 단계도 못 감';
     const last = d.secs.slice(-4).map((q) => `${q.s}초: ${q.fps}fps·최대 간격 ${q.gap}ms·JS ${q.js}ms${q.det ? `·인식 ${q.det}ms` : ''}`).join(' / ');
     return `<b>지난 AR</b> (${when}${d.lite ? ', 가벼운 모드' : ''}): ${d.dur}초 동안 · ` +
       (d.ended ? '정상 종료' : '<span style="color:var(--warn)"><b>끝내기 전에 멈춤(또는 강제 종료)</b></span>') +
-      `<br>${ev}${last ? `<br><span class="muted">${last}</span>` : ''}`;
+      `<br>${ev}${last ? `<br><span class="muted">${last}</span>` : ''}` +
+      (d.notes && d.notes.length ? `<br><span style="color:var(--warn)">오류: ${d.notes.map((n) => n.replace(/[<>&]/g, '')).join(' / ')}</span>` : '') +
+      `<br><span class="muted">기능: ${d.features || '-'}${d.usage ? ` · 깊이 ${d.usage}` : ''}${d.layers ? ' · WebXR 층 있음' : ''}</span>`;
   }
 }

@@ -263,8 +263,12 @@ async function startAR() {
   }
   session.addEventListener('end', onEnd);
   session.addEventListener('select', onSelect);
+  runLog.start({ lite: LITE, fb: FB_SCALE, features: f.join(','), depth: depth.supported, usage: session.depthUsage || null, layers: session.renderState.layers !== undefined });
+  // three.js(r170)는 'depth-sensing'이 켜져 있으면 매 프레임 GPU 방식 깊이(XRWebGLBinding.getDepthInformation)를 읽는데,
+  // 우리는 CPU 방식이라 그 호출이 오류를 낸다 (WebXR 층(layers)이 있는 Chrome에서 binding이 생기면). 그래서 three.js에는 늘 숨긴다
+  if (session.depthUsage !== 'gpu-optimized') hideDepthFromThree(session);
+  guardFrames(session);
   await renderer.xr.setSession(session);
-  if (!renderer.xr.getBinding()) hideDepthFromThree(session); // three.js가 없는 GPU binding으로 깊이를 읽다 오류 나지 않게
   refSpace = renderer.xr.getReferenceSpace();
   // three.js는 'layers' 기능이 있을 때만 binding을 만들어서 안드로이드에서는 직접 만든다
   try { binding = renderer.xr.getBinding() || new XRWebGLBinding(session, renderer.getContext()); } catch (e) { binding = null; flash('카메라 영상 연결 실패: ' + e.message, 8000); }
@@ -273,7 +277,6 @@ async function startAR() {
   hitSource = null;
   gen++; inflight = null;
   perf.reset();
-  runLog.start({ lite: LITE, fb: FB_SCALE, features: f.join(','), depth: depth.supported });
   document.body.classList.add('in-ar');
   fuser.reset(); roadTracker.reset();
   diorama.visible = false;
@@ -284,6 +287,28 @@ async function startAR() {
   renderer.setAnimationLoop(onXRFrame);
 }
 
+// 프레임 콜백 안에서 오류가 한 번 나면 three.js는 다음 프레임을 요청하지 않아 AR 화면이 그대로 멈춘다.
+// session.requestAnimationFrame을 감싸서, 오류가 나도 기록하고 다음 프레임을 이어 간다
+let frameErrors = 0, injectError = false;
+function reportError(where, e) {
+  frameErrors++;
+  const msg = `${where}: ${(e && (e.message || e.name)) || e}`.slice(0, 140);
+  runLog.ev('error', msg);
+  runLog.note(msg);
+  if (gate.on) flash(`오류(${frameErrors}번): ${msg}`, 4000);
+  console.error(e);
+}
+function guardFrames(s) {
+  const raf = s.requestAnimationFrame.bind(s);
+  s.requestAnimationFrame = (cb) => raf(function guarded(t, frame) {
+    try { cb(t, frame); } catch (e) {
+      reportError('프레임', e);
+      if (session === s) raf(guarded); // 원래 콜백이 다음 프레임을 요청하기 전에 오류가 났으면 대신 요청
+    }
+  });
+}
+window.addEventListener('error', (e) => { if (session) reportError('스크립트', e.error || e.message); });
+window.addEventListener('unhandledrejection', (e) => { if (session) reportError('비동기', e.reason); });
 function onEnd() {
   renderer.setAnimationLoop(null);
   if (reader) reader.cancel();
@@ -302,6 +327,7 @@ function onEnd() {
 function onXRFrame(t, frame) {
   if (!frame || !session) return; // AR이 끝난 직후 한 번 더 불릴 수 있음
   const w0 = performance.now();
+  if (injectError) { injectError = false; throw new Error('시험 오류'); }
   perf.frame(t);
   const dt = lastT === null ? 0 : Math.min(0.1, (t - lastT) / 1000);
   lastT = t;
@@ -1144,6 +1170,7 @@ window.__raimAR = {
   setCarS: (v) => { controller.s = v; controller.v = 0; }, // 차를 경로 위 한 자리로 (가림 시험)
   pathLength: () => P.length,
   detections: () => detCount,
+  injectFrameError: () => { injectError = true; }, // 시험: 다음 프레임에서 오류
   carMaterials: () => { const a = []; carObj.traverse((o) => { if (o.isMesh) a.push(o.material.type); }); return a; },
   get state() {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,
@@ -1151,6 +1178,6 @@ window.__raimAR = {
       yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
-      detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, liteDepth, depthRequested: depth.requested, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
+      detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, liteDepth, frameErrors, depthRequested: depth.requested, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
   },
 };
