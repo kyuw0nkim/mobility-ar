@@ -384,7 +384,8 @@ function handleDetections(job, img, res) {
       const r = clusterToRoad(c, K, camPose, zPanel);
       if (!r || !inArea(area, r.x, r.y)) { it.verdict = r ? `디오라마 밖 (${r.x.toFixed(0)}, ${r.y.toFixed(0)})cm` : '디오라마 밖'; continue; }
       const ratio = panelSizeRatio(c, r, K, camPose, zPanel, panelH);
-      if (ratio === null || ratio < 0.25 || ratio > 4) { it.verdict = `크기 안 맞음 ×${ratio === null ? '?' : ratio.toFixed(1)}`; continue; }
+      const [lo, hi] = cfg.barricade.colorSizeRange || [0.25, 4];
+      if (ratio === null || ratio < lo || ratio > hi) { it.verdict = `크기 안 맞음 ×${ratio === null ? '?' : ratio.toFixed(1)}`; continue; }
       if (obs) { it.verdict = '다른 후보 사용 중'; continue; }
       obs = { x: r.x, y: r.y, dx: r.dx, dy: r.dy };
       src = '색';
@@ -457,7 +458,7 @@ function addTapPoint(q) {
   if (!centerLineOn(cfg)) { refreshRecordVis(); return; } // A4 시트 등: 붙이지 않음
   tapState.set(entry, 'pending');
   refreshRecordVis();
-  const roadWidth = cfg.lane.roadWidth || 30;
+  const roadWidth = cfg.lane.roadWidth || 24;
   // 앞서 찍은 점으로 예상한 경로 선 (가로지르는 주차선, 도로 위 흰 기둥 자국에 붙지 않게)
   const guide = travelGuide(recording.pts.filter((q) => q !== entry && tapState.get(q) === 'ok'), entry);
   detectClient.snapPoint(entry.slice(), { roadWidth, guide }).then((r) => {
@@ -600,7 +601,7 @@ function snapWith(mosaic) {
   const good = recording.pts.filter((p) => tapState.get(p) !== 'miss');
   const nOk = recording.pts.filter((p) => tapState.get(p) === 'ok').length;
   const base = nOk >= 4 && nOk >= recording.pts.length * 0.5 ? good : recording.pts;
-  const res = centerLineOn(cfg) ? refineAlongStripe(mosaic, base, { roadWidth: cfg.lane.roadWidth || 30 }) : { ok: false };
+  const res = centerLineOn(cfg) ? refineAlongStripe(mosaic, base, { roadWidth: cfg.lane.roadWidth || 24 }) : { ok: false };
   if (res.ok) {
     lastSnap = { ...res, method: 'stripe' };
     recording.snapped = res.pts; recording.snapWeak = res.weak;
@@ -863,7 +864,7 @@ function startSetupMosaic() {
   detectClient.resetMosaic({ bounds: { x0: -100, y0: -100, x1: 100, y1: 100 }, cell: c, grow: true });
   mosaicKey = null; // 끝나면 지도에 맞는 도로 영상으로 다시 시작
 }
-const roadWidthIn = () => parseFloat($('setupRoad').value) || cfg.lane.roadWidth || 30;
+const roadWidthIn = () => parseFloat($('setupRoad').value) || cfg.lane.roadWidth || 24;
 async function findSetupLoop() {
   mapping.finding = true;
   const res = await detectClient.findLoop({ roadWidth: roadWidthIn() });
@@ -947,7 +948,7 @@ $('recLoop').onclick = async () => {
   laneBusy = true;
   try {
     flash('중앙선 한 바퀴를 찾는 중…', 3000);
-    const res = await detectClient.findLoop({ roadWidth: cfg.lane.roadWidth || 30 });
+    const res = await detectClient.findLoop({ roadWidth: cfg.lane.roadWidth || 24 });
     if (!recording.active) return;
     lastSnap = res;
     if (res && res.ok) { recording.snapped = res.pts; refreshRecordVis(); flash(`한 바퀴 찾았어요 · ${(res.length / 100).toFixed(2)}m · 괜찮으면 [완료·저장]`, 5000); }

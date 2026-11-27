@@ -22,11 +22,16 @@ export const DEFAULT_CONFIG = {
   barricade: {
     markerIds: [10, 11], // 앞면·뒷면
     markerSize: 3.0,
-    width: 10.0, // 바닥에서 도로를 막는 폭
-    height: 5.0, // 바리케이드 전체 높이 (화면 표시용, 색 인식 높이 계산에도 씀)
+    // 전시용 레고 바리케이드: 전체 17×11cm, 노랑·검정 줄무늬 패널 12×6cm(위쪽, 바닥에서 약 5~11cm)
+    // (A4 시트 종이 바리케이드로 시험할 때: width 10, height 5.5, colorHeight·colorPanelHeight null)
+    width: 17.0, // 바닥에서 도로를 막는 폭
+    height: 11.0, // 바리케이드 전체 높이 (화면 표시용, 색 인식 높이 계산에도 씀)
     color: true, // AR 버전: 마커가 안 보이면 노랑·검정 줄무늬 색으로 찾기
-    colorHeight: null, // 노란 패널 가운데 높이(cm). null이면 height × 0.65
-    colorPanelHeight: null, // 노란 패널 자체의 세로 길이(cm). null이면 height × 0.35 (크기 확인용)
+    colorHeight: 8.0, // 노란 패널 가운데 높이(cm). null이면 height × 0.65
+    colorPanelHeight: 6.0, // 노란 패널 자체의 세로 길이(cm). null이면 height × 0.35 (크기 확인용)
+    // 크기 확인 범위: 노란 조각 세로 ÷ 그 자리 패널이 보여야 할 세로. 전시용은 세로 줄무늬라 조각 = 패널 높이(약 1배) → 0.5~2배만.
+    // (체크무늬형처럼 조각이 패널의 절반이면 [0.25, 4]). 좁을수록 테이블 너머 노란 물건을 잘 거름
+    colorSizeRange: [0.5, 2],
   },
   car: { length: 3.6, width: 1.8, height: 1.3, color: '#e2453c', scale: 1.5 }, // scale: 화면의 [차 −/+]로 조절
   drive: {
@@ -48,7 +53,7 @@ export const DEFAULT_CONFIG = {
   lane: {
     width: null, // 차선 폭(cm). null이면 영상에서 자동으로 잼
     search: null, // 탭한 경로 좌우로 차선을 찾는 범위(cm). null이면 마커 크기 × 1.2
-    roadWidth: 30, // 흰 중앙선 찾기(한 바퀴 설치)에 쓰는 도로 전체 폭(cm, 검은 차로 2 + 중앙선). 대충이어도 됨
+    roadWidth: 24, // 흰 중앙선 찾기에 쓰는 도로 폭(cm): 양쪽 검은 차로 바깥 끝끼리(검-흰 중앙선-검). 흰 가장자리까지는 30. 대충이어도 됨
     centerLine: true, // 경로 기록 때 탭을 흰 중앙선에 붙이고 [중앙선 맞추기]를 씀 (A4 시트 지도에서는 자동으로 꺼짐)
   },
   barricadeTracking: { confirmFrames: 3, windowFrames: 6, clearMs: 2000, smoothing: 0.35 },

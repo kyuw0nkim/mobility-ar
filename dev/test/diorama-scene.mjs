@@ -1,5 +1,6 @@
 // 전시 디오라마를 본뜬 가상 장면 (사진 2장 참고, 단위 cm, 도로 좌표: x 오른쪽, y 안쪽(뒤), z 위)
-//  - 테이블 480 x 190, 흰 바닥. 경기장 모양 고리 도로(폭 30): 검은 차로 12 + 흰 중앙선 2 + 검은 차로 12, 양옆 흰 가장자리 2
+//  - 테이블 480 x 190, 흰 바닥. 경기장 모양 고리 도로(흰 가장자리까지 30, 검은 차로 바깥 끝끼리 24):
+//    흰 가장자리 3 + 검은 차로 11 + 흰 중앙선 2 + 검은 차로 11 + 흰 가장자리 3 (실측값)
 //  - 뒤쪽 직선 가운데가 안쪽으로 12cm 구불(S), 오른쪽 끝 안쪽은 어두운 회색 광장(흰 가장자리 없음)
 //  - 고리 안쪽: 흰 화살표(≫)가 그려진 검은 직선 도로, 회색 골목, 어두운 주차장(흰 칸 선)과 파란 띠, 나무(초록 점), 이음매(검은 줄)
 //  - 세운 물체: 돔(구), 탑, 오른쪽 끝 도로를 가로지르는 게이트, 앞 도로 중앙선 위에 놓인 검은 레고 차
@@ -10,7 +11,7 @@ import { Resvg } from '@resvg/resvg-js';
 const { AR } = createRequire(import.meta.url)('js-aruco2');
 
 export const TABLE = { w: 480, h: 190 };
-export const ROAD = { half: 15, lane: 12, center: 1 }; // 중앙선 반폭 1, 차로 1~13, 가장자리 13~15
+export const ROAD = { half: 15, black: 12, center: 1 }; // 중앙선 반폭 1, 차로 1~12, 가장자리 12~15
 const E1 = 95, E2 = 385, CY = 95, R = 63; // 양 끝 반원 중심·반지름 (앞 직선 y=32, 뒤 직선 y=158)
 const wig = (x) => (x > 170 && x < 310 ? -12 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (x - 170)) / 140)) : 0);
 const wigD = (x) => (x > 170 && x < 310 ? -12 * 0.5 * Math.sin((2 * Math.PI * (x - 170)) / 140) * ((2 * Math.PI) / 140) : 0);
@@ -65,12 +66,12 @@ export function groundColor(x, y) {
   const mk = markerAt(x, y);
   if (mk) return mk;
   const d = centerDist(x, y), ad = Math.abs(d);
-  const rightPlaza = x > 375 && d < -13 && !(y > 118 && x < 400);
+  const rightPlaza = x > 375 && d < -ROAD.black && !(y > 118 && x < 400);
   // 이음매: 앞 도로를 가로지르는 검은 줄
   if ((Math.abs(x - 160) < 0.4 || Math.abs(x - 320) < 0.4) && y < 50) return [25, 25, 28];
   if (ad < ROAD.center) return WHITE;
-  if (ad < 13) return BLACK;
-  if (ad < 15) return rightPlaza ? PLAZA : WHITE;
+  if (ad < ROAD.black) return BLACK;
+  if (ad < ROAD.half) return rightPlaza ? PLAZA : WHITE;
   if (rightPlaza) return PLAZA;
   if (d > 0) return BASE; // 고리 바깥: 흰 바닥
   // ---- 고리 안쪽 ----

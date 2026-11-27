@@ -19,7 +19,7 @@ const COLOR = !!process.env.COLOR, EDGE = !!process.env.EDGE;
 console.log((COLOR ? '[색으로만 찾기 — 바리케이드 마커 무시]' : '[마커 + 색]') + (EDGE ? ' [마커는 한 변에만]' : ''));
 await page.evaluate(({ COLOR, EDGE }) => {
   localStorage.clear();
-  const cfg = { drive: { speedScale: 4 }, barricade: { height: 5.5 } };
+  const cfg = { drive: { speedScale: 4 }, barricade: { width: 10, height: 5.5, colorHeight: null, colorPanelHeight: null, colorSizeRange: [0.25, 4] } }; // A4 시트 종이 바리케이드
   if (COLOR) cfg.barricade.markerIds = [98, 99];
   // EDGE=1: 마커를 아래쪽 한 변(0·1·2번)에만 붙인 지도 — 바리케이드는 그 반대쪽 도로(y=15)에 있음
   if (EDGE) cfg.roadMarkers = [{ id: 0, x: 2.4, y: 2.4, size: 3, rot: 0 }, { id: 1, x: 14.85, y: 2.4, size: 3, rot: 0 }, { id: 2, x: 27.3, y: 2.4, size: 3, rot: 0 }];

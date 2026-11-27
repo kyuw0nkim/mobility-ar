@@ -59,7 +59,7 @@ async function pressAndWatch(page, key, label) {
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(`window.__mockScene = 'bar'; window.__mockHold = 3;\n${mock}`);
   await page.goto('http://localhost:8765/ar.html');
-  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ drive: { speedScale: 4 }, barricade: { height: 5.5 } })); });
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ drive: { speedScale: 4 }, barricade: { width: 10, height: 5.5, colorHeight: null, colorPanelHeight: null, colorSizeRange: [0.25, 4] } })); });
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('btnStart').disabled);
   await page.click('#btnStart');

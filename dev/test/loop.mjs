@@ -42,7 +42,7 @@ for (const [label, frac, opts] of [['한 바퀴 전부', 1, {}], ['한 바퀴, �
   const t0 = performance.now();
   const m = build(frac, opts);
   const t1 = performance.now();
-  for (const roadWidth of [30, 22, 45]) {
+  for (const roadWidth of [24, 18, 36]) {
     const t2 = performance.now();
     const r = findCenterLoop(m, { roadWidth });
     const t3 = performance.now();
