@@ -230,35 +230,97 @@ async function checkSupport() {
     return;
   }
   $('startMsg').textContent = cfg.pathStale ? '아직 경로가 준비되지 않았어요 · 직원에게 알려 주세요' : '';
-  $('btnStart').disabled = false;
+  setStartButton('idle');
 }
 
+// ---------- AR 시작 ----------
+// 시작 버튼 상태: 'idle' | 'starting'(세션 요청 중) | 'cooldown'(방금 끝난 AR을 ARCore가 정리하는 중)
+let startState = 'idle', startAttempt = 0, endedAt = -1e9;
+const START_TIMEOUT = window.__raimStartTimeout || 12000; // 이만큼 지나도 세션이 안 열리면 포기하고 다시 누르게 (늦게 열리면 바로 닫음)
+const COOLDOWN = 1500; // AR을 끝낸 직후 바로 다시 누르면 ARCore가 카메라를 아직 놓지 않아 요청이 멈추거나 거절됨
+function setStartButton(state, label) {
+  startState = state;
+  $('btnStart').disabled = state !== 'idle';
+  $('btnStart').textContent = label || '시작하기';
+}
+function startFailed(msg) {
+  $('startMsg').textContent = msg;
+  setStartButton('idle');
+  runLog.startNote(msg);
+}
+// 세션 요청 이유를 사람이 읽을 말로
+function startErrorText(e) {
+  const n = e && e.name;
+  if (n === 'InvalidStateError') return '이전 AR이 아직 정리 중이에요 · 잠시 뒤 다시 눌러 주세요';
+  if (n === 'NotAllowedError' || n === 'SecurityError') return '카메라·AR 사용이 허용되지 않았어요 · 다시 눌러 주세요 (권한 창이 뜨면 허용)';
+  if (n === 'NotSupportedError') return '이 기기에서 AR을 시작할 수 없어요 (ARCore 확인 필요)';
+  return 'AR을 시작하지 못했어요 · 다시 눌러 주세요' + (e && e.message ? ` (${e.message})` : '');
+}
 async function startAR() {
-  $('btnStart').disabled = true;
+  if (startState !== 'idle' || session) return;
+  const my = ++startAttempt;
+  setStartButton('starting', 'AR 시작 중…');
+  $('startMsg').textContent = '';
+  const t0 = performance.now();
+  runLog.startNote(null);
+  // 시간이 지나도 안 열리면 포기 (그 뒤에 열리면 아래에서 바로 닫음)
+  const timer = setTimeout(() => {
+    if (startAttempt !== my || startState !== 'starting') return;
+    startAttempt++;
+    startFailed('AR이 열리지 않아요 · 다시 눌러 주세요 (계속 안 되면 Chrome을 닫았다 열어 주세요)');
+  }, START_TIMEOUT);
+  try {
+    await openSession(my);
+  } catch (e) {
+    clearTimeout(timer);
+    if (startAttempt === my) startFailed(startErrorText(e));
+    return;
+  }
+  clearTimeout(timer);
+  if (startAttempt !== my) { // 포기한 뒤에 늦게 열림 → 닫기
+    const s2 = session; session = null;
+    try { s2.end(); } catch (e) { /* 무시 */ }
+    return;
+  }
+  runLog.startNote(`세션 열림 ${Math.round(performance.now() - t0)}ms`);
+  try {
+    await enterAR();
+  } catch (e) {
+    reportError('AR 준비', e);
+    const s2 = session;
+    try { s2.end(); } catch (e2) { /* 무시 */ }
+    startFailed('AR 준비 중 문제가 생겼어요 · 다시 눌러 주세요');
+  }
+}
+// 세션 요청은 버튼을 누른 직후(사용자 동작 안)에 한 번에: 깊이 인식은 선택 기능이라 지원 안 하는 기기는 그냥 빠진다.
+// 그래도 깊이 옵션 때문에 바로 거절되는 기기면(1초 안), 깊이 없이 한 번 더
+async function openSession(my) {
   const opts = {
     requiredFeatures: ['local'],
     // hit-test는 [높이 자동] 때만 켠다 (켜 두면 ARCore가 매 프레임 바닥 찾기를 계산). anchors는 안 씀
     optionalFeatures: ['camera-access', 'hit-test', 'dom-overlay'],
     domOverlay: { root: $('ui') },
   };
-  try {
-    // 깊이 인식(가림 처리)도 함께 요청 (가림 처리를 꺼 두면 요청 안 함 — ARCore 깊이 계산이 꽤 무거움). 이 때문에 시작이 안 되는 기기면 깊이 없이 다시
+  let s1;
+  if (!depthWanted()) s1 = await navigator.xr.requestSession('immersive-ar', opts);
+  else {
+    const t0 = performance.now();
     try {
-      if (!depthWanted()) throw new Error('no depth');
-      session = await navigator.xr.requestSession('immersive-ar', { ...opts, optionalFeatures: [...opts.optionalFeatures, DEPTH_REQUEST.optional], depthSensing: DEPTH_REQUEST.depthSensing });
+      s1 = await navigator.xr.requestSession('immersive-ar', { ...opts, optionalFeatures: [...opts.optionalFeatures, DEPTH_REQUEST.optional], depthSensing: DEPTH_REQUEST.depthSensing });
     } catch (e) {
-      session = await navigator.xr.requestSession('immersive-ar', opts);
+      if (!(e && (e.name === 'NotSupportedError' || e.name === 'TypeError')) || performance.now() - t0 > 1000) throw e;
+      s1 = await navigator.xr.requestSession('immersive-ar', opts);
     }
-  } catch (e) {
-    $('startMsg').textContent = 'AR을 시작하지 못했어요: ' + (e.message || e);
-    $('btnStart').disabled = false;
-    return;
   }
+  if (startAttempt !== my) { try { s1.end(); } catch (e) { /* 무시 */ } throw Object.assign(new Error('늦게 열림'), { name: 'Late' }); }
+  session = s1;
+}
+async function enterAR() {
   const f = [...(session.enabledFeatures || [])];
   depth = { requested: depthWanted(), supported: f.includes('depth-sensing') && session.depthUsage === 'cpu-optimized', format: session.depthDataFormat || 'luminance-alpha' };
   if (f.length && !f.includes('camera-access')) {
-    session.end();
-    $('startMsg').textContent = '이 기기는 AR 중 카메라 영상 접근(camera-access)이 안 돼서 마커로 위치를 맞출 수 없어요.';
+    const s2 = session; session = null; s2.end();
+    startFailed('이 기기는 AR 중 카메라 영상 접근(camera-access)이 안 돼서 마커로 위치를 맞출 수 없어요.');
     return;
   }
   session.addEventListener('end', onEnd);
@@ -285,6 +347,7 @@ async function startAR() {
   $('ui').hidden = false;
   if (cfg.pathStale) flash('경로가 없어요 · 위치가 맞으면 [경로 기록]으로 만들어 주세요', 5000);
   renderer.setAnimationLoop(onXRFrame);
+  setStartButton('starting', 'AR 실행 중');
 }
 
 // 프레임 콜백 안에서 오류가 한 번 나면 three.js는 다음 프레임을 요청하지 않아 AR 화면이 그대로 멈춘다.
@@ -319,7 +382,10 @@ function onEnd() {
   setRecording(false);
   $('ui').hidden = true;
   $('start').hidden = false;
-  $('btnStart').disabled = false;
+  // 방금 끝난 AR을 ARCore가 정리할 시간 (바로 누르면 요청이 멈추거나 거절됨)
+  endedAt = performance.now();
+  setStartButton('cooldown', '잠시만요…');
+  setTimeout(() => { if (startState === 'cooldown') setStartButton('idle'); }, COOLDOWN);
   describeMap();
 }
 

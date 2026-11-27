@@ -1,6 +1,7 @@
 // 지난 AR 기록: AR이 몇 초 만에 멈춰 버려 화면을 못 읽는 기기를 위해, 1초마다 이 기기에 기록을 남긴다.
 // 다음에 시작 화면(관리자)에서 '지난 AR'로 어디까지 갔는지(카메라·첫 인식·위치 맞춤·깊이)와 마지막 몇 초의 프레임 상태를 본다.
 const KEY = 'raim-ar-lastrun';
+const START_KEY = 'raim-ar-laststart'; // 마지막 [시작하기] 결과 (세션이 안 열린 경우도)
 
 export class RunLog {
   constructor() { this.d = null; }
@@ -39,6 +40,14 @@ export class RunLog {
     if (this.d.notes.length > 5) this.d.notes.shift();
     this.save();
   }
+  // [시작하기] 결과 한 줄 (null이면 새로 누름)
+  startNote(msg) {
+    try {
+      const r = msg === null ? { at: Date.now(), notes: [] } : JSON.parse(localStorage.getItem(START_KEY) || 'null') || { at: Date.now(), notes: [] };
+      if (msg !== null) r.notes.push(msg);
+      localStorage.setItem(START_KEY, JSON.stringify(r));
+    } catch (e) { /* 무시 */ }
+  }
   end() {
     if (!this.d) return;
     this.d.ended = true;
@@ -50,9 +59,10 @@ export class RunLog {
 
   // 시작 화면에 보일 글 (없으면 '')
   static describe() {
-    let d = null;
-    try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { d = null; }
-    if (!d) return '';
+    let d = null, st = null;
+    try { d = JSON.parse(localStorage.getItem(KEY) || 'null'); st = JSON.parse(localStorage.getItem(START_KEY) || 'null'); } catch (e) { d = null; }
+    const stText = st ? `<b>마지막 시작</b> (${new Date(st.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}): ${st.notes.length ? st.notes.map((n) => String(n).replace(/[<>&]/g, '')).join(' → ') : '세션 요청 중에 멈춤(응답 없음)'}` : '';
+    if (!d) return stText;
     const when = new Date(d.at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     const names = { camera: '카메라 영상', detect: '첫 인식', aligned: '위치 맞춤', depth: '깊이 인식', car: '차 보임', error: '첫 오류' };
     const ev = d.ev.map(([n, s, note]) => `${names[n] || n} ${s}초${note ? `(${note})` : ''}`).join(' · ') || '아무 단계도 못 감';
@@ -61,6 +71,7 @@ export class RunLog {
       (d.ended ? '정상 종료' : '<span style="color:var(--warn)"><b>끝내기 전에 멈춤(또는 강제 종료)</b></span>') +
       `<br>${ev}${last ? `<br><span class="muted">${last}</span>` : ''}` +
       (d.notes && d.notes.length ? `<br><span style="color:var(--warn)">오류: ${d.notes.map((n) => n.replace(/[<>&]/g, '')).join(' / ')}</span>` : '') +
-      `<br><span class="muted">기능: ${d.features || '-'}${d.usage ? ` · 깊이 ${d.usage}` : ''}${d.layers ? ' · WebXR 층 있음' : ''}</span>`;
+      `<br><span class="muted">기능: ${d.features || '-'}${d.usage ? ` · 깊이 ${d.usage}` : ''}${d.layers ? ' · WebXR 층 있음' : ''}</span>` +
+      (stText ? `<br>${stText}` : '');
   }
 }
