@@ -15,7 +15,7 @@ const page = await browser.newPage({ viewport: { width: 1024, height: 700 } }); 
   await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = ${HOLD};\n${mock}`);
-await page.goto('http://localhost:8765/ar.html');
+await page.goto('http://localhost:8765/ar.html?lite=0');
 // 지도는 정답 마커 배치 그대로 (한 바퀴 설치나 지도 만들기를 마친 상태)
 await page.evaluate((markers) => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: markers, pathStale: true })); }, MARKERS);
 await page.reload();

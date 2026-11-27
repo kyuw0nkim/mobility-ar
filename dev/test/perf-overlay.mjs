@@ -12,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, dev
 await page.addInitScript(`window.__mockScene = 'dio'; window.__mockHold = 3;${process.env.ADMIN ? "window.__raimAutoAdmin = '4300';" : ''}
 window.__long = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) window.__long.push(e.duration); }).observe({ entryTypes: ['longtask'] });
 \n${mock}`);
-await page.goto('http://localhost:8765/ar.html');
+await page.goto(`http://localhost:8765/ar.html?lite=${process.env.LITE ? 1 : 0}`);
 await page.evaluate(({ markers, path }) => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ roadMarkers: markers, path, pathStale: false })); }, { markers: MARKERS, path: truthLoop(4) });
 await page.reload();
 await page.waitForFunction(() => !document.getElementById('btnStart').disabled);
