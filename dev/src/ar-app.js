@@ -66,6 +66,10 @@ const LITE = (() => {
     return v === null ? true : v === '1';
   } catch (e) { return q !== '0'; }
 })();
+// 가벼운 모드에서도 깊이 인식(가림 처리)만 따로 켜기 (기본 끔, 이 기기에 저장). 가벼운 모드를 끄면 원래대로 가림 설정을 따름
+let liteDepth = false;
+try { liteDepth = localStorage.getItem('raim-ar-lite-depth') === '1'; } catch (e) { /* 무시 */ }
+const depthWanted = () => cfg.occlusion.enabled !== false && (!LITE || liteDepth);
 const renderer = new THREE.WebGLRenderer({ canvas: $('three'), alpha: true, antialias: !LITE });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -188,6 +192,9 @@ let lastSnap = null;
 function showLite() {
   $('btnLite').textContent = LITE ? '가벼운 모드 켬' : '가벼운 모드 끔';
   $('btnLite').classList.toggle('off', !LITE);
+  $('btnLiteDepth').hidden = !LITE;
+  $('btnLiteDepth').textContent = liteDepth ? '가벼운 모드 가림 켬' : '가벼운 모드 가림 끔';
+  $('btnLiteDepth').classList.toggle('off', !liteDepth);
   const lr = RunLog.describe();
   $('lastRun').hidden = !lr;
   $('lastRun').innerHTML = lr;
@@ -196,6 +203,12 @@ function showLite() {
 $('btnLite').onclick = () => {
   try { localStorage.setItem('raim-ar-lite', LITE ? '0' : '1'); } catch (e) { /* 무시 */ }
   location.replace(location.pathname);
+};
+$('btnLiteDepth').onclick = () => {
+  liteDepth = !liteDepth;
+  try { localStorage.setItem('raim-ar-lite-depth', liteDepth ? '1' : '0'); } catch (e) { /* 무시 */ }
+  if (liteDepth && cfg.occlusion.enabled === false) { cfg.occlusion.enabled = true; save(); }
+  showLite();
 };
 function describeMap() {
   showLite();
@@ -231,7 +244,7 @@ async function startAR() {
   try {
     // 깊이 인식(가림 처리)도 함께 요청 (가림 처리를 꺼 두면 요청 안 함 — ARCore 깊이 계산이 꽤 무거움). 이 때문에 시작이 안 되는 기기면 깊이 없이 다시
     try {
-      if (cfg.occlusion.enabled === false || LITE) throw new Error('no depth');
+      if (!depthWanted()) throw new Error('no depth');
       session = await navigator.xr.requestSession('immersive-ar', { ...opts, optionalFeatures: [...opts.optionalFeatures, DEPTH_REQUEST.optional], depthSensing: DEPTH_REQUEST.depthSensing });
     } catch (e) {
       session = await navigator.xr.requestSession('immersive-ar', opts);
@@ -242,7 +255,7 @@ async function startAR() {
     return;
   }
   const f = [...(session.enabledFeatures || [])];
-  depth = { requested: cfg.occlusion.enabled !== false && !LITE, supported: f.includes('depth-sensing') && session.depthUsage === 'cpu-optimized', format: session.depthDataFormat || 'luminance-alpha' };
+  depth = { requested: depthWanted(), supported: f.includes('depth-sensing') && session.depthUsage === 'cpu-optimized', format: session.depthDataFormat || 'luminance-alpha' };
   if (f.length && !f.includes('camera-access')) {
     session.end();
     $('startMsg').textContent = '이 기기는 AR 중 카메라 영상 접근(camera-access)이 안 돼서 마커로 위치를 맞출 수 없어요.';
@@ -1081,7 +1094,7 @@ function showOcclusionButton() {
 function setOcclusion(on) { cfg.occlusion.enabled = on; save(); showOcclusionButton(); }
 $('btnOcclusion').onclick = () => {
   setOcclusion(cfg.occlusion.enabled === false);
-  flash(cfg.occlusion.enabled === false ? '가림 처리를 껐어요' : LITE ? '가림 처리를 켰어요 · 다만 가벼운 모드에서는 깊이 인식을 안 해서 가려지지 않아요' : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
+  flash(cfg.occlusion.enabled === false ? '가림 처리를 껐어요' : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
 };
 $('btnDepthView').onclick = () => { showDepth = !showDepth; occlusion.setShowDepth(showDepth); $('btnDepthView').classList.toggle('off', !showDepth); };
 $('btnDepthView').classList.add('off');
@@ -1138,6 +1151,6 @@ window.__raimAR = {
       yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
-      detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
+      detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, liteDepth, depthRequested: depth.requested, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
   },
 };
