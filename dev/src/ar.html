@@ -14,6 +14,9 @@
   #ui { position:fixed; inset:0; pointer-events:none; }
   #ui button, #ui input, #ui label, #ui .glass { pointer-events:auto; }
   #ui .guide { pointer-events:none; }
+  /* AR 중: 카메라 화면 위 층은 가볍게 — 큰 흐린 그림자·전환 효과를 빼서 글이 바뀔 때 다시 그리는 양을 줄임 */
+  body.in-ar #ui .glass, body.in-ar #ui .hud-card.hot, body.in-ar #ui .hud-card.stop { box-shadow:none; }
+  body.in-ar #speedBar, body.in-ar .hud-card { transition:none; }
   #bottom { position:absolute; left:16px; right:16px; bottom:14px; display:grid; grid-template-columns:minmax(0, 1fr); gap:10px; align-items:end; }
   #hud { width:min(1080px, 100%); justify-self:center; }
   /* 관리자: 왼쪽 인식·판단·제어, 오른쪽 관리자 버튼 */

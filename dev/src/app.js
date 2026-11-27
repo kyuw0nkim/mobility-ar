@@ -404,7 +404,7 @@ function updateHud(now, tracking) {
   if (onPath) judge = controller.gap !== null ? `길을 막고 있어요 · 앞 ${controller.gap.toFixed(1)}cm` : '길 위에 있지만 아직 멀어요';
   $('hudJudge').textContent = judge;
   $('hudControl').textContent = `${STATE_KO[controller.state]} · ${controller.v.toFixed(1)}cm/s`;
-  $('speedBar').style.width = `${Math.min(100, (controller.v / controller.o.cruise) * 100)}%`;
+  $('speedBar').style.transform = `scaleX(${(Math.min(100, (controller.v / controller.o.cruise) * 100) / 100).toFixed(2)})`;
   $('speedBar').className = controller.state;
   ['cardSense', 'cardJudge', 'cardControl'].forEach((id) => $(id).classList.remove('hot'));
   if (barricadeSeenNow) $('cardSense').classList.add('hot');
