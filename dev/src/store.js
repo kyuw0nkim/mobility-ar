@@ -36,7 +36,7 @@ export function storeConfig(cfg) {
 // 한 기기에서 [전시 설정 내보내기]로 diorama.json을 받아 사이트(저장소 맨 위 폴더)에 올리면,
 // 모든 기기가 앱을 열 때 자동으로 불러온다. 파일의 savedAt이 바뀌었을 때만 다시 덮어쓴다
 // (그 전까지 기기에서 바꾼 값은 유지). 기기마다 다른 카메라 보정값(tracking)은 공유하지 않는다.
-export const SHARED_KEYS = ['roadMarkers', 'path', 'pathStale', 'roadHeight', 'car', 'drive', 'barricade', 'lane', 'barricadeTracking'];
+export const SHARED_KEYS = ['roadMarkers', 'path', 'pathStale', 'roadHeight', 'car', 'drive', 'barricade', 'lane', 'barricadeTracking', 'buildings'];
 export const SHARED_URL = 'diorama.json';
 const APPLIED_KEY = 'raim-ar-shared-applied';
 

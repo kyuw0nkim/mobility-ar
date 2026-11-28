@@ -68,6 +68,8 @@
     .preview-3d { min-height: 46vh; }
     .preview-screen { padding: 12px 16px; }
   }
+  #buildKinds button.on { background: var(--c-301); color: #fff; }
+  #buildBar input { width: 64px; }
   @media (orientation: portrait) and (max-width: 599px) {
     #bottom { left:8px; right:8px; bottom:8px; gap:6px; }
     body.admin #bottom { grid-template-columns:minmax(0, 1fr); }
@@ -194,6 +196,8 @@
         <button id="btnSetup">한 바퀴 설치</button>
         <button id="btnOcclusion">가림 켬</button>
         <button id="btnDepthView">깊이 보기</button>
+        <button id="btnBuild">건물 등록</button>
+        <button id="btnShowBuild">건물 표시</button>
       </div>
     </div>
     <div id="mapBar" class="admin-only" hidden>
@@ -218,6 +222,33 @@
           <button class="btn ghost small" id="setupReset">다시 시작</button>
           <button class="btn ghost small" id="setupCancel">취소</button>
           <button class="btn primary small" id="setupDone">완료·저장</button>
+        </div>
+      </div>
+    </div>
+    <div id="buildBar" class="admin-only" hidden>
+      <div class="task-card glass solid">
+        <div class="row" style="justify-content:space-between"><h3>건물 등록 (가림)</h3><span class="muted" id="buildStat">-</span></div>
+        <div class="row seg" id="buildKinds">
+          <button class="btn ghost small" data-kind="building">건물</button>
+          <button class="btn ghost small" data-kind="canopy">천막(아래 뚫림)</button>
+          <button class="btn ghost small" data-kind="tree">나무</button>
+        </div>
+        <p id="buildHelp">-</p>
+        <div class="row">
+          <label>높이 <input id="buildH" type="number" value="20" min="1" max="300" step="0.5"> cm</label>
+          <label class="bk-canopy">아래 빈 높이 <input id="buildUnder" type="number" value="8" min="0" max="300" step="0.5"> cm</label>
+          <label class="bk-roof">뾰족 지붕 <input id="buildPeak" type="number" value="0" min="0" max="100" step="0.5"> cm</label>
+          <label class="bk-tree">반지름 <input id="buildR" type="number" value="4" min="0.5" max="50" step="0.5"> cm</label>
+        </div>
+        <div class="row">
+          <button class="btn ghost small" id="buildMeasureTop">꼭대기 높이 재기</button>
+          <button class="btn ghost small bk-canopy" id="buildMeasureUnder">처마(아래) 높이 재기</button>
+          <button class="btn ghost small" id="buildUndo">점 되돌리기</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost small" id="buildDelLast">마지막 건물 지우기</button>
+          <button class="btn ghost small" id="buildClose">닫기</button>
+          <button class="btn primary small" id="buildSave">이 모양 저장</button>
         </div>
       </div>
     </div>

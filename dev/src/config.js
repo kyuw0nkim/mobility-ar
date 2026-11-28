@@ -52,7 +52,10 @@ export const DEFAULT_CONFIG = {
   },
   barricadeTracking: { confirmFrames: 3, windowFrames: 6, clearMs: 2000, smoothing: 0.35 },
   // 가림 처리 (AR 버전, ARCore 깊이 인식): 실제 물체가 차보다 margin(m) + 거리×marginRel 넘게 앞에 있을 때만 가림
-  occlusion: { enabled: true, margin: 0.03, marginRel: 0.03 },
+  // depthWithBuildings: 건물을 등록했어도 깊이 인식 가림을 같이 쓸지 (기본: 건물이 있으면 깊이 인식은 끔 — 지직거림·부하)
+  occlusion: { enabled: true, margin: 0.03, marginRel: 0.03, depthWithBuildings: false },
+  // 건물 등록 가림 (AR 버전): 건물·천막·나무 모양. AR 안 [건물 등록]으로 만듦 (buildings.js)
+  buildings: [],
   path: roundedRectPath(ROAD.x0, ROAD.y0, ROAD.x1, ROAD.y1, ROAD.r, 8),
   pathStale: false, // 마커 지도를 새로 만든 뒤 경로를 아직 기록하지 않음
 };
