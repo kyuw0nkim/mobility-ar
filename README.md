@@ -112,9 +112,9 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
    - "덜 비췄어요"가 나오면 탭한 곳을 따라 한 번 더 천천히 비춘 뒤 다시 눌러요.
    - 차선 폭은 영상에서 자동으로 재요. 잘 안 맞으면 설정의 `lane.width`에 실제 차선 폭(cm, 흰 선 안쪽끼리)을 적어요.
 4. **바리케이드:** 마커 10을 레고 바리케이드 패널 앞면 가운데에, 11을 뒷면 가운데에 붙이고(화살표가 하늘 쪽),
-   기본값은 전시용 레고 바리케이드(전체 폭 17 × 높이 11cm, 노랑·검정 줄무늬 패널 12 × 6cm)에 맞춰져 있어요.
+   기본값은 전시용 레고 바리케이드(전체 폭 17 × 높이 11cm)에 맞춰져 있어요.
    다른 바리케이드를 쓰면 설정의 `barricade.width`(바닥에서 도로를 막는 폭)·`height`를 실제 값(cm)으로 바꿔요.
-   A4 시트의 종이 바리케이드로 시험할 때는 `width` 10, `height` 5.5, `colorHeight`·`colorPanelHeight`는 `null`.
+   A4 시트의 종이 바리케이드로 시험할 때는 `width` 10, `height` 5.5.
 5. 차 크기는 오른쪽 **차 − / 차 +** 버튼으로 바로 조절해요(누를 때마다 1.25배, 설정의 `car.scale`에 저장).
    속도는 **속도 − / 속도 +** 버튼으로 조절해요(누를 때마다 1.25배, `drive.speedScale`에 저장).
    빨라져도 감속 시작 거리와 감속도를 같은 비율로 늘려서 바리케이드 앞에서 똑같이 멈춰요.
@@ -219,19 +219,8 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
    경로를 막으면 판단 카드에 "경로 위 · 앞 n cm", 제어 카드가 감속 → 정지로 바뀌어요. 화면에는 바리케이드 자리에 상자가 보여요(노랑: 경로 밖, 빨강: 경로를 막음).
    - 치우면, 그 자리가 화면에 보이는 상태로 2초가 지나면 해제되고 다시 출발해요. 화면 밖에 있으면 "기억 중"으로 유지해요. 바로 해제하려면 **바리케이드 해제**.
    - 바리케이드 마커는 3cm라 대략 **60~80cm 안**에서 인식돼요. 더 멀리서 보려면 마커를 크게 인쇄하고 설정의 `barricade.markerSize`를 그 크기(cm)로 바꿔요.
-   - **마커 없이도 돼요(색 인식):** 마커가 안 보이면 **노랑·검정 줄무늬**로 찾아요(인식 카드에 "보임(색)"). 노란 조각이 2개 이상 모인 덩어리만 바리케이드로 보니,
-     노란 블록 하나 정도로는 헷갈리지 않아요. 어느 방향에서 봐도 되고 마커보다 멀리서도 잡혀요.
-     - 전시용 레고 바리케이드 기본값: `width` 17, `height` 11, 줄무늬 패널 가운데 높이 `colorHeight` 8(패널이 바닥에서 약 5~11cm), 패널 세로 `colorPanelHeight` 6.
-       다른 바리케이드면 이 값들을 실제 치수(cm)로 바꿔요. `colorHeight`가 `null`이면 `height`의 0.65배로 봐요.
-     - 경로 근처에 노랑·검정 줄무늬 물건이 있으면 바리케이드로 볼 수 있어요. 끄려면 `barricade.color`를 `false`로.
-     - **인식 표시**를 켜면 화면의 노란 후보마다 상자와 판정이 나와요: 초록 "바리케이드", 회색 "줄무늬 아님(노란 조각 1개)"·"디오라마 밖",
-       주황 "크기 안 맞음 ×n"(n이 1보다 훨씬 크면 `barricade.colorPanelHeight`를 키우고, 작으면 줄여요). 잘 안 잡히면 이 화면을 찍어 보내 주세요.
-       크기 확인 범위는 `barricade.colorSizeRange`(전시용 세로 줄무늬 바리케이드 `[0.5, 2]`, 체크무늬형이면 `[0.25, 4]`).
-     - 실제 바리케이드 사진 3장(가까이·체크무늬형·멀리)에서 바리케이드만 정확히 찾고, 주변의 노란 점(꽃·건물·차)은 무시했어요.
-       전시실 전체 사진 2장(노란 의자, 무지개색 태블릿 케이스)에서는 아무것도 바리케이드로 잡지 않았어요.
-     - "디오라마 안" 판정은 마커와 저장된 경로를 모두 덮는 범위 + 15cm로 해요(마커를 한두 변에만 붙여도 가운데 바리케이드를 놓치지 않게).
-     - 크기 확인: 그 자리에 바리케이드 패널이 있다면 화면에서 보여야 할 크기와 노란 조각 크기를 비교해, 테이블 너머의 노란 의자처럼
-       훨씬 큰 물체는 걸러요. 패널 세로 길이는 `barricade.colorPanelHeight`(전시용 6cm, `null`이면 `height × 0.35`)로 봐요.
+   - 바리케이드는 **마커(10·11)로만** 알아봐요. (예전의 노랑·검정 줄무늬 색 인식은 뺐어요: 주변 노란 물건과 헷갈릴 수 있어서)
+   - 바리케이드 크기는 설정의 `barricade.width`(도로를 막는 폭)·`height`(cm). 전시용 레고 바리케이드 기본값 17 × 11.
 
 8. **가림 처리(3단계):** 실제 건물·돔·게이트·바리케이드·사람 손보다 **뒤에 있는 차와 경로선은 그리지 않아요.** 따로 등록할 필요 없이 자동이에요.
    - ARCore 깊이 인식(WebXR Depth Sensing)으로 카메라 앞 물체까지의 거리를 재서, 그보다 멀리 있는 차 부분을 숨겨요.
@@ -305,15 +294,13 @@ node test/e2e-height.mjs       # 도로 높이: 표시층 높이, 높인 면 기
 node test/xr-align.mjs         # AR 버전 위치 맞춤 시뮬레이션
 node test/e2e-shared.mjs       # 전시 설정 공유 (dist/를 8765 포트로 띄운 뒤)
 node test/xr-mock/make-frames.mjs && cp -r test/xr-mock dist/ && node test/e2e-ar.mjs   # 가짜 ARCore로 AR 버전 시험
-node test/xr-mock/make-frames.mjs bar && cp -r test/xr-mock dist/ && node test/e2e-ar-barricade.mjs   # 바리케이드(2단계), COLOR=1이면 색으로만
-node test/color-photos.mjs <출력폴더> <폭> <높이> 사진.rgba...   # 실제 사진에서 노란 줄무늬 덩어리 찾기
-node test/color-size.mjs       # 크기 확인: 디오라마 안으로 투영되는 먼 노란 의자 거르기
+node test/xr-mock/make-frames.mjs bar && cp -r test/xr-mock dist/ && node test/e2e-ar-barricade.mjs   # 바리케이드(2단계, 마커)
 node test/lane-trace.mjs       # 자동 경로: 가상 디오라마(흰 띠형·점선형)에서 두 번 탭으로 한 바퀴 추적
 node test/e2e-ar-auto.mjs      # 가짜 ARCore로 자동 경로 → 저장 → 주행
 node test/xr-mapper-sim.mjs    # AR 지도 만들기 시뮬레이션 (8cm 마커 18개, ARCore 밀림 0~2%)
 node test/e2e-ar-map.mjs       # 가짜 ARCore로 AR 지도 만들기 → 실제 배치와 비교 → 자동 경로 → 주행
 node test/xr-mock/make-frames-card.mjs && cp -r test/xr-mock dist/ && node test/e2e-ar-card.mjs   # 경로 카드로 점 찍기
-EDGE=1 COLOR=1 node test/e2e-ar-barricade.mjs   # 마커를 한 변에만 붙였을 때 가운데 바리케이드 (색 인식)
+EDGE=1 node test/e2e-ar-barricade.mjs   # 도로 마커를 한 변에만 붙였을 때 가운데 바리케이드
 node tools/make-card.mjs out && node tools/svg-to-pdf.cjs out 경로카드.pdf   # 경로 카드 PDF
 node test/make-video.mjs && node test/e2e-lane.mjs   # 실제 빌드로 경로 기록 → 차선 맞추기 → 주행 (dist/를 8765 포트로 띄운 뒤)
 node test/xr-mock/make-frames-dio.mjs   # 전시 디오라마를 본뜬 가상 장면(test/diorama-scene.mjs)을 한 바퀴 걸으며 찍은 영상 (약 2분)
@@ -333,7 +320,7 @@ node test/perf-ar.mjs          # AR 버전 화면 스레드 막힘·프레임 �
 
 #### 처리 흐름과 성능
 
-- **AR 버전:** 카메라 영상은 초당 6번, GPU에서 작게 줄여 **기다리지 않고** 읽어요(PBO). 마커 인식·노랑 줄무늬 찾기·경로 기록 중 도로 영상 모으기는
+- **AR 버전:** 카메라 영상은 초당 6번, GPU에서 작게 줄여 **기다리지 않고** 읽어요(PBO). 마커 인식·경로 기록 중 도로 영상 모으기는
   **별도 스레드(Web Worker)**에서 해서, 그동안에도 차가 끊기지 않고 그려져요. 계산은 영상을 찍은 순간의 휴대폰 자세로 하니 결과가 몇 프레임 늦게 와도 위치가 어긋나지 않아요.
   화면 왼쪽 위 `인식 n ms`는 워커가 한 프레임 처리에 쓴 시간이에요. 워커를 못 띄우는 브라우저면 `(화면 스레드)`가 붙고 예전처럼 화면 스레드에서 처리해요.
 - **가벼운 모드 (기본 켬, 보급형 태블릿용):** 갤럭시 탭 A11+ 같은 보급형 태블릿은 카메라 영상 읽기·마커 인식·3D·ARCore 추적·깊이 인식을 한꺼번에 못 버텨
@@ -365,7 +352,6 @@ node test/perf-ar.mjs          # AR 버전 화면 스레드 막힘·프레임 �
 | `src/app.js` | 마커 버전: 카메라, 3D 렌더링(Three.js), 인식–판단–제어 화면, 경로 기록, 설정 |
 | `src/ar-app.js` | AR 버전: WebXR 세션, 마커로 위치 맞춤, 주행, 경로 기록, 높이 자동 측정 |
 | `src/xr-align.js` | AR 버전 좌표 계산: ARCore 세계 ↔ 도로, 수평 디오라마 위치 추정·융합 |
-| `src/barricade-color.js` | 마커 없이 노랑·검정 줄무늬로 바리케이드 찾기 |
 | `src/xr-mapper.js` | AR 지도 만들기: 마커를 하나씩 비춰 ARCore 세계 위치로 지도 만들기 |
 | `src/loop.js` | 흰 중앙선 한 바퀴 찾기: 중앙선 점수 지도 → 가운데에서 쏜 선마다 후보 → 순환 비터비 → 법선 단면으로 다듬기 |
 | `test/diorama-scene.mjs` | 시험용 가상 전시 디오라마 (사진을 본뜬 고리 도로·화살표 도로·주차장·게이트·돔·레고 차·조명 반사) |

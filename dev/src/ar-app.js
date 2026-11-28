@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 import { markerCorners, transformPoint, project } from './geometry.js';
 import { RoadPoseTracker, solveBarricade, solveFlatMarker, toFullRes } from './tracking.js';
-import { clusterToRoad, panelSizeRatio } from './barricade-color.js';
 import { RoadMosaic, snapPathToLane, traceLane } from './lane.js';
 import { refineAlongStripe, travelGuide } from './loop.js';
 import {
@@ -203,7 +202,6 @@ let inflight = null; // 인식 중인 프레임 {stage, gen, t, now, wc, proj}
 let gen = 0; // AR 세션 번호 (끝난 세션의 늦은 결과는 버림)
 let lastSeen = new Map(); // 마커 id → 마지막으로 본 시각
 let showPath = true, showMarkers = true; // showMarkers: 마커 테두리·인식 표시 (관리자 모드에서만 보임)
-let lastYellow = null; // 인식 표시용: 마지막 영상의 노란 후보와 판정
 // AR 지도 만들기 (setup: 한 바퀴 설치 — 지도 만들기 + 중앙선 찾기를 같이)
 const mapping = { active: false, setup: false, mapper: null, view: null, A0: null, loop: null, finding: false, lastFind: -1e9 };
 let trackingPoor = false;
@@ -526,7 +524,6 @@ function collect() {
   if (!img) return;
   const job = inflight;
   job.stage = 'detect';
-  const wantYellow = !mapping.active && fuser.ready && cfg.barricade.color !== false;
   // 경로 기록 중: 차선 맞추기용 도로 영상 모으기 (찍은 순간의 휴대폰 자세 + 지금까지 맞춘 위치)
   let acc = null;
   if (recording.active && !mapping.active && fuser.ready) {
@@ -537,7 +534,7 @@ function collect() {
     const K = intrinsicsFromProjection(job.proj, img.width, img.height);
     acc = { K, pose: liftPose(roadToCv(mapping.A0, job.wc), roadH()), area: null };
   }
-  detectClient.run(img, { yellow: wantYellow, acc }).then((res) => {
+  detectClient.run(img, { acc }).then((res) => {
     if (inflight === job) inflight = null;
     if (!res) return;
     const r = reader;
@@ -592,31 +589,8 @@ function handleDetections(job, img, res) {
   // 지금 카메라에서 본 도로 자세 (마커가 안 보여도 ARCore + 맞춘 위치로 계산)
   const camPose = roadToCv(fuser.result, wc);
   // 바리케이드: 마커 10·11 → 도로 좌표. 여러 프레임 확인 후 등장, 그 자리가 보이는데 안 잡히면 해제
-  let obs = solveBarricade(markers, cfg.barricade, K, camPose);
-  let src = obs ? '마커' : null;
-  // 마커가 안 보이면 노랑·검정 줄무늬 색으로 찾기 (노란 조각 2개 이상인 덩어리 → 패널 높이 면에 투영)
-  if (!obs && cfg.barricade.color !== false) {
-    const zPanel = roadH() + (cfg.barricade.colorHeight ?? cfg.barricade.height * 0.65);
-    const area = workArea();
-    const panelH = cfg.barricade.colorPanelHeight ?? cfg.barricade.height * 0.35;
-    // 노란 덩어리마다 판정하고 이유를 남긴다 (인식 표시 화면용)
-    const items = [];
-    for (const c of res.yellow || []) {
-      const it = { bbox: c.bbox, verdict: '', ok: false, single: c.single };
-      items.push(it);
-      if (c.single) { it.verdict = '줄무늬 아님(노란 조각 1개)'; continue; }
-      const r = clusterToRoad(c, K, camPose, zPanel);
-      if (!r || !inArea(area, r.x, r.y)) { it.verdict = r ? `디오라마 밖 (${r.x.toFixed(0)}, ${r.y.toFixed(0)})cm` : '디오라마 밖'; continue; }
-      const ratio = panelSizeRatio(c, r, K, camPose, zPanel, panelH);
-      const [lo, hi] = cfg.barricade.colorSizeRange || [0.25, 4];
-      if (ratio === null || ratio < lo || ratio > hi) { it.verdict = `크기 안 맞음 ×${ratio === null ? '?' : ratio.toFixed(1)}`; continue; }
-      if (obs) { it.verdict = '다른 후보 사용 중'; continue; }
-      obs = { x: r.x, y: r.y, dx: r.dx, dy: r.dy };
-      src = '색';
-      it.ok = true; it.verdict = `바리케이드 (크기 ×${ratio.toFixed(1)})`;
-    }
-    lastYellow = { w: img.width, h: img.height, items, t: performance.now() };
-  }
+  const obs = solveBarricade(markers, cfg.barricade, K, camPose);
+  const src = obs ? '마커' : null;
   barricadeSeenNow = src;
   let inView = false;
   if (barTracker.est) {
@@ -869,14 +843,13 @@ function setRoadHeight(h, msg) {
   flash(msg || `도로 높이 ${cfg.roadHeight >= 0 ? '+' : ''}${cfg.roadHeight.toFixed(2)}cm · 차가 도로에 붙어 보이면 맞아요`, 2500);
 }
 
-// ---------- 인식 표시: 노란 후보 상자 (카메라 영상은 화면과 같은 범위) ----------
-// 화면 전체 크기 캔버스라서, 지우거나 그릴 때마다 AR 화면 위 층 전체를 다시 합성한다 → 그릴 것이 있을 때만, 화면 배율 1로
+// ---------- 인식 표시: 지도 만들기 중 마커 상자 (카메라 영상은 화면과 같은 범위) ----------
+// 화면 전체 크기 캔버스라서, 지우거나 그릴 때마다 AR 화면 위 층 전체를 다시 합성한다 → 그릴 것이 있을 때만
 let dbgDrawn = false, dbgKey = null;
 function drawDetections() {
   const v = mapping.active ? mapping.view : null;
-  const showYellow = !mapping.active && showMarkers && gate.on && lastYellow && lastYellow.items.length > 0 && performance.now() - lastYellow.t <= 1000;
-  const live = mapping.active ? !!v && v.items.length > 0 && performance.now() - v.t <= 800 : !!showYellow;
-  const key = live ? (mapping.active ? v : lastYellow) : null;
+  const live = !!v && v.items.length > 0 && performance.now() - v.t <= 800;
+  const key = live ? v : null;
   if (key === dbgKey) return; // 새 인식 결과가 없으면 그대로
   dbgKey = key;
   const cv = $('dbg');
@@ -889,32 +862,15 @@ function drawDetections() {
   const g = cv.getContext('2d');
   g.clearRect(0, 0, W, H);
   dbgDrawn = true;
-  if (mapping.active) {
-    const sx = W / v.w, sy = H / v.h;
-    g.lineWidth = 3; g.font = '700 13px system-ui, sans-serif';
-    for (const it of v.items) {
-      g.strokeStyle = it.col; g.beginPath();
-      it.c.forEach((p, i) => (i ? g.lineTo(p[0] * sx, p[1] * sy) : g.moveTo(p[0] * sx, p[1] * sy)));
-      g.closePath(); g.stroke();
-      const tw = g.measureText(it.label).width;
-      g.fillStyle = 'rgba(13,17,23,.8)'; g.fillRect(it.c[0][0] * sx, it.c[0][1] * sy - 19, tw + 8, 17);
-      g.fillStyle = it.col; g.fillText(it.label, it.c[0][0] * sx + 4, it.c[0][1] * sy - 6);
-    }
-    return;
-  }
-  const sx = W / lastYellow.w, sy = H / lastYellow.h;
-  g.lineWidth = 2;
-  g.font = '600 12px system-ui, sans-serif';
-  for (const it of lastYellow.items) {
-    const [x0, y0, x1, y1] = it.bbox;
-    const col = it.ok ? '#3ddc84' : it.verdict.startsWith('크기') ? '#ff9f0a' : '#a8b0bb';
-    g.strokeStyle = col;
-    g.strokeRect(x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy);
-    const tw = g.measureText(it.verdict).width;
-    g.fillStyle = 'rgba(13,17,23,.8)';
-    g.fillRect(x0 * sx, y0 * sy - 17, tw + 8, 16);
-    g.fillStyle = col;
-    g.fillText(it.verdict, x0 * sx + 4, y0 * sy - 5);
+  const sx = W / v.w, sy = H / v.h;
+  g.lineWidth = 3; g.font = '700 13px system-ui, sans-serif';
+  for (const it of v.items) {
+    g.strokeStyle = it.col; g.beginPath();
+    it.c.forEach((p, i) => (i ? g.lineTo(p[0] * sx, p[1] * sy) : g.moveTo(p[0] * sx, p[1] * sy)));
+    g.closePath(); g.stroke();
+    const tw = g.measureText(it.label).width;
+    g.fillStyle = 'rgba(13,17,23,.8)'; g.fillRect(it.c[0][0] * sx, it.c[0][1] * sy - 19, tw + 8, 17);
+    g.fillStyle = it.col; g.fillText(it.label, it.c[0][0] * sx + 4, it.c[0][1] * sy - 6);
   }
 }
 
@@ -947,12 +903,8 @@ function updateHud(t) {
   // 인식 · 판단 · 제어 카드 (관람객도 읽을 수 있는 말로, 관리자는 자세한 값 덧붙임)
   const st = controller.state === 'drive' ? '달리는 중' : controller.state === 'brake' ? '속도를 줄이는 중' : '멈춤';
   const onPath = barricade && blocksPath(P, barricade, clearance());
-  const yel = lastYellow && performance.now() - lastYellow.t < 1000 ? lastYellow.items : [];
-  // 줄무늬 후보(노란 조각 2개 이상)가 탈락했을 때만 이유를 보여 줌 (노란 블록 하나는 늘 있을 수 있어서 제외)
-  const rej = barricadeSeenNow ? [] : yel.filter((i) => !i.single && !i.ok);
-  const rejected = rej.length ? ` · 노랑 후보 ${rej.length}개(${rej[0].verdict})` : '';
   setText('hudSense', (barricadeSeenNow ? `바리케이드를 찾았어요${gate.on ? `(${barricadeSeenNow})` : ''}` : barricade ? '바리케이드를 기억하고 있어요' : '길 위에 장애물이 없어요') +
-    (gate.on ? ` · 도로 마커 ${seen}개${rejected}` : ''));
+    (gate.on ? ` · 도로 마커 ${seen}개` : ''));
   setText('hudJudge', !barricade ? '가는 길이 비어 있어요' : !onPath ? '바리케이드가 있지만 길 밖이에요'
     : controller.gap !== null ? `길을 막고 있어요 · 앞 ${controller.gap.toFixed(1)}cm` : '길 위에 있지만 아직 멀어요');
   setText('hudControl', `${st} · ${controller.v.toFixed(1)}cm/s`);
@@ -1292,7 +1244,6 @@ window.__raimAR = {
   get state() {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,
       carState: controller.state, gap: controller.gap, barricade, barricadeSeenNow, recPts: recording.pts, snapped: recording.snapped, lastSnap, partial: recording.partial, scan: scanCoverage(),
-      yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
       detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, liteDepth, frameErrors, depthRequested: depth.requested, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };

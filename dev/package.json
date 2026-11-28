@@ -5,7 +5,7 @@
   "scripts": {
     "build": "node build.mjs",
     "publish-site": "node build.mjs --publish",
-    "test": "node tools/make-sheet.mjs && node test/logic.mjs && node test/mapping.mjs && node test/lane.mjs && node test/lane-trace.mjs && node test/path-jitter.mjs && node test/pose-compare.mjs && node test/xr-align.mjs && node test/xr-mapper-sim.mjs && node test/pipeline.mjs && node test/color-size.mjs"
+    "test": "node tools/make-sheet.mjs && node test/logic.mjs && node test/mapping.mjs && node test/lane.mjs && node test/lane-trace.mjs && node test/path-jitter.mjs && node test/pose-compare.mjs && node test/xr-align.mjs && node test/xr-mapper-sim.mjs && node test/pipeline.mjs"
   },
   "license": "ISC",
   "dependencies": {
