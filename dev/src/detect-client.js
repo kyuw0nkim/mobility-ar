@@ -58,8 +58,8 @@ export class DetectClient {
   }
 
   // img: {width, height, data: Uint8ClampedArray}. 워커로 넘기면 data는 이 스레드에서 비워진다(옮김) — 결과의 data를 다시 쓴다.
-  // opts: {yellow: bool, acc: {K, pose, area}|null(도로 영상 모으기)}
-  // 반환: Promise<{markers:[{id, corners:[{x,y}]}], yellow|null, coverage|null, ms, data, error}> (워커가 죽으면 null)
+  // opts: {acc: {K, pose, area}|null(도로 영상 모으기)}
+  // 반환: Promise<{markers:[{id, corners:[{x,y}]}], coverage|null, ms, data, error}> (워커가 죽으면 null)
   async run(img, opts) {
     if (!this.worker) return this.runHere(img, opts);
     const r = await this.call({ type: 'detect', width: img.width, height: img.height, buf: img.data.buffer, opts }, [img.data.buffer]);
@@ -92,7 +92,7 @@ export class DetectClient {
     try {
       return { ...processFrame(this.local, img, opts, window.AR), data: img.data, error: null };
     } catch (e) {
-      return { markers: [], yellow: null, coverage: null, ms: 0, data: img.data, error: String((e && e.message) || e) };
+      return { markers: [], coverage: null, ms: 0, data: img.data, error: String((e && e.message) || e) };
     }
   }
 }

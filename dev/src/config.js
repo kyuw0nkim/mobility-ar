@@ -22,16 +22,10 @@ export const DEFAULT_CONFIG = {
   barricade: {
     markerIds: [10, 11], // 앞면·뒷면
     markerSize: 3.0,
-    // 전시용 레고 바리케이드: 전체 17×11cm, 노랑·검정 줄무늬 패널 12×6cm(위쪽, 바닥에서 약 5~11cm)
-    // (A4 시트 종이 바리케이드로 시험할 때: width 10, height 5.5, colorHeight·colorPanelHeight null)
+    // 전시용 레고 바리케이드: 전체 17×11cm. 마커 10(앞면)·11(뒷면)로만 인식
+    // (A4 시트 종이 바리케이드로 시험할 때: width 10, height 5.5)
     width: 17.0, // 바닥에서 도로를 막는 폭
-    height: 11.0, // 바리케이드 전체 높이 (화면 표시용, 색 인식 높이 계산에도 씀)
-    color: true, // AR 버전: 마커가 안 보이면 노랑·검정 줄무늬 색으로 찾기
-    colorHeight: 8.0, // 노란 패널 가운데 높이(cm). null이면 height × 0.65
-    colorPanelHeight: 6.0, // 노란 패널 자체의 세로 길이(cm). null이면 height × 0.35 (크기 확인용)
-    // 크기 확인 범위: 노란 조각 세로 ÷ 그 자리 패널이 보여야 할 세로. 전시용은 세로 줄무늬라 조각 = 패널 높이(약 1배) → 0.5~2배만.
-    // (체크무늬형처럼 조각이 패널의 절반이면 [0.25, 4]). 좁을수록 테이블 너머 노란 물건을 잘 거름
-    colorSizeRange: [0.5, 2],
+    height: 11.0, // 바리케이드 전체 높이 (화면 표시용)
   },
   car: { length: 3.6, width: 1.8, height: 1.3, color: '#e2453c', scale: 1.5 }, // scale: 화면의 [차 −/+]로 조절
   drive: {
@@ -58,7 +52,10 @@ export const DEFAULT_CONFIG = {
   },
   barricadeTracking: { confirmFrames: 3, windowFrames: 6, clearMs: 2000, smoothing: 0.35 },
   // 가림 처리 (AR 버전, ARCore 깊이 인식): 실제 물체가 차보다 margin(m) + 거리×marginRel 넘게 앞에 있을 때만 가림
-  occlusion: { enabled: true, margin: 0.03, marginRel: 0.03 },
+  // depthWithBuildings: 건물을 등록했어도 깊이 인식 가림을 같이 쓸지 (기본: 건물이 있으면 깊이 인식은 끔 — 지직거림·부하)
+  occlusion: { enabled: true, margin: 0.03, marginRel: 0.03, depthWithBuildings: false },
+  // 건물 등록 가림 (AR 버전): 건물·천막·나무 모양. AR 안 [건물 등록]으로 만듦 (buildings.js)
+  buildings: [],
   path: roundedRectPath(ROAD.x0, ROAD.y0, ROAD.x1, ROAD.y1, ROAD.r, 8),
   pathStale: false, // 마커 지도를 새로 만든 뒤 경로를 아직 기록하지 않음
 };

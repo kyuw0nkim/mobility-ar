@@ -133,6 +133,14 @@ export class AlignmentFuser {
   }
 }
 
+// 세계 광선(원점 o, 방향 d; m) → 도로 좌표의 광선 {O: 원점(cm), D: 단위 방향}
+export function rayInRoad(A, o, d) {
+  const O = worldToRoad(A, o);
+  const R = levelRotation(A.yaw);
+  const D = [R[0] * d[0] + R[3] * d[1] + R[6] * d[2], R[1] * d[0] + R[4] * d[1] + R[7] * d[2], R[2] * d[0] + R[5] * d[1] + R[8] * d[2]];
+  const L = Math.hypot(...D) || 1;
+  return { O, D: D.map((v) => v / L) };
+}
 // 세계 광선(원점 o, 방향 d; m) → 도로 면 z=h(cm)과 만나는 도로 좌표 [x,y] 또는 null
 export function rayToRoad(A, o, d, h = 0) {
   const O = worldToRoad(A, o);

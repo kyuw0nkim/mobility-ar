@@ -68,6 +68,8 @@
     .preview-3d { min-height: 46vh; }
     .preview-screen { padding: 12px 16px; }
   }
+  #buildKinds button.on { background: var(--c-301); color: #fff; }
+  #buildBar input { width: 64px; }
   @media (orientation: portrait) and (max-width: 599px) {
     #bottom { left:8px; right:8px; bottom:8px; gap:6px; }
     body.admin #bottom { grid-template-columns:minmax(0, 1fr); }
@@ -172,7 +174,8 @@
     <button class="btn ghost round" id="btnGearAR" aria-label="설정 (관리자)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg></button>
   </div>
   <div id="bottom">
-    <div id="hud" class="hud-cards">
+    <!-- 인식·판단·제어 카드: 관리자 모드에서만 (관람객 화면은 차와 안내 문구만) -->
+    <div id="hud" class="hud-cards admin-only">
       <div class="hud-card glass solid" id="cardSense"><div class="hud-head"><span class="dot">1</span><h3>인식</h3><small>무엇이 보이나</small></div><div class="hud-body" id="hudSense">-</div></div>
       <div class="hud-card glass solid" id="cardJudge"><div class="hud-head"><span class="dot">2</span><h3>판단</h3><small>길을 막고 있나</small></div><div class="hud-body" id="hudJudge">-</div></div>
       <div class="hud-card glass solid" id="cardControl"><div class="hud-head"><span class="dot">3</span><h3>제어</h3><small>어떻게 움직이나</small></div><div class="hud-body" id="hudControl">-</div><div class="gauge"><div id="speedBar"></div></div></div>
@@ -194,6 +197,8 @@
         <button id="btnSetup">한 바퀴 설치</button>
         <button id="btnOcclusion">가림 켬</button>
         <button id="btnDepthView">깊이 보기</button>
+        <button id="btnBuild">건물 등록</button>
+        <button id="btnShowBuild">건물 표시</button>
       </div>
     </div>
     <div id="mapBar" class="admin-only" hidden>
@@ -218,6 +223,33 @@
           <button class="btn ghost small" id="setupReset">다시 시작</button>
           <button class="btn ghost small" id="setupCancel">취소</button>
           <button class="btn primary small" id="setupDone">완료·저장</button>
+        </div>
+      </div>
+    </div>
+    <div id="buildBar" class="admin-only" hidden>
+      <div class="task-card glass solid">
+        <div class="row" style="justify-content:space-between"><h3>건물 등록 (가림)</h3><span class="muted" id="buildStat">-</span></div>
+        <div class="row seg" id="buildKinds">
+          <button class="btn ghost small" data-kind="building">건물</button>
+          <button class="btn ghost small" data-kind="canopy">천막(아래 뚫림)</button>
+          <button class="btn ghost small" data-kind="tree">나무</button>
+        </div>
+        <p id="buildHelp">-</p>
+        <div class="row">
+          <label>높이 <input id="buildH" type="number" value="20" min="1" max="300" step="0.5"> cm</label>
+          <label class="bk-canopy">아래 빈 높이 <input id="buildUnder" type="number" value="8" min="0" max="300" step="0.5"> cm</label>
+          <label class="bk-roof">뾰족 지붕 <input id="buildPeak" type="number" value="0" min="0" max="100" step="0.5"> cm</label>
+          <label class="bk-tree">반지름 <input id="buildR" type="number" value="4" min="0.5" max="50" step="0.5"> cm</label>
+        </div>
+        <div class="row">
+          <button class="btn ghost small" id="buildMeasureTop">꼭대기 높이 재기</button>
+          <button class="btn ghost small bk-canopy" id="buildMeasureUnder">처마(아래) 높이 재기</button>
+          <button class="btn ghost small" id="buildUndo">점 되돌리기</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost small" id="buildDelLast">마지막 건물 지우기</button>
+          <button class="btn ghost small" id="buildClose">닫기</button>
+          <button class="btn primary small" id="buildSave">이 모양 저장</button>
         </div>
       </div>
     </div>

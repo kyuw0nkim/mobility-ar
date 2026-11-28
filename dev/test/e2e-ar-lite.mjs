@@ -31,7 +31,7 @@ await start();
 console.log(`  위치 맞춤 ${((Date.now() - t0) / 1000).toFixed(1)}초`);
 let s = await st();
 ok(s.lite && !s.antialias && s.fbScale === 0.5, `가벼운 모드 · 안티에일리어싱 끔 · 해상도 ×${s.fbScale}`);
-ok(s.occlusionStatus === 'unsupported' && !s.depthRequested, `깊이 인식 요청 안 함 (가림 상태 ${s.occlusionStatus})`);
+ok(['unsupported', 'off'].includes(s.occlusionStatus) && !s.depthRequested, `깊이 인식 요청 안 함 (가림 상태 ${s.occlusionStatus})`);
 const mats = await page.evaluate(() => window.__raimAR.carMaterials());
 ok(mats.length && !mats.includes('MeshStandardMaterial'), `차 재질 단순화 (${[...new Set(mats)].join(', ')})`);
 const s0 = s.s;

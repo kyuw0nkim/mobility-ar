@@ -6,7 +6,6 @@
 import * as THREE from 'three';
 import { markerCorners, transformPoint, project } from './geometry.js';
 import { RoadPoseTracker, solveBarricade, solveFlatMarker, toFullRes } from './tracking.js';
-import { clusterToRoad, panelSizeRatio } from './barricade-color.js';
 import { RoadMosaic, snapPathToLane, traceLane } from './lane.js';
 import { refineAlongStripe, travelGuide } from './loop.js';
 import {
@@ -17,9 +16,10 @@ import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } fro
 import { makeDrawnCar, carEnvironment } from './car-model.js';
 import { paintCar } from './car-paint.js';
 import { createCarFlow, DEFAULT_VEHICLE } from './car-flow.js';
+import { BuildingLayer, KIND_NAME, valid as validBuilding, centroid, footprint, heightOnVertical, makeOccluder } from './buildings.js';
 import { isSheetMap } from './config.js';
 import {
-  intrinsicsFromProjection, worldFromCv, levelEstimate, AlignmentFuser, roadToWorldMatrix, roadToCv, rayToRoad, worldToRoad,
+  intrinsicsFromProjection, worldFromCv, levelEstimate, AlignmentFuser, roadToWorldMatrix, roadToCv, rayToRoad, rayInRoad, worldToRoad,
 } from './xr-align.js';
 import { XRCameraReader } from './xr-camera.js';
 import { XRMarkerMapper } from './xr-mapper.js';
@@ -72,7 +72,9 @@ const LITE = (() => {
 // 가벼운 모드에서도 깊이 인식(가림 처리)만 따로 켜기 (기본 끔, 이 기기에 저장). 가벼운 모드를 끄면 원래대로 가림 설정을 따름
 let liteDepth = false;
 try { liteDepth = localStorage.getItem('raim-ar-lite-depth') === '1'; } catch (e) { /* 무시 */ }
-const depthWanted = () => cfg.occlusion.enabled !== false && (!LITE || liteDepth);
+// 건물을 등록했으면 깊이 인식은 기본으로 끔 (등록한 모양으로 가림: 지직거림 없고 가벼움). occlusion.depthWithBuildings로 같이 쓸 수 있음
+const hasBuildings = () => (cfg.buildings || []).length > 0;
+const depthWanted = () => cfg.occlusion.enabled !== false && (!hasBuildings() || cfg.occlusion.depthWithBuildings === true) && (!LITE || liteDepth);
 const renderer = new THREE.WebGLRenderer({ canvas: $('three'), alpha: true, antialias: !LITE });
 renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
 renderer.setSize(window.innerWidth, window.innerHeight, false);
@@ -112,6 +114,14 @@ roadLayer.add(cardVis);
 let carObj = null, pathLine = null, P = null, controller = null;
 const barVis = makeBarricadeVis(); // 바리케이드 자리 (노랑: 경로 밖, 빨강: 경로를 막음)
 roadLayer.add(barVis.group);
+// 바리케이드 뒤의 차도 가림 (마커로 자리를 아니까 상자 모양으로)
+const barOcc = makeOccluder(new THREE.BoxGeometry(1, 1, 1));
+barVis.group.add(barOcc);
+// 등록한 건물·천막·나무 (디오라마 좌표, 마커 면 기준 높이)
+const buildingLayer = new BuildingLayer();
+diorama.add(buildingLayer.group);
+const build = { active: false, kind: 'building', pts: [] };
+let showBuildings = false;
 let barTracker = null;
 let barricade = null; // 추적 중인 바리케이드 {x, y, dx, dy, width} (도로 좌표)
 let barricadeSeenNow = false;
@@ -167,6 +177,8 @@ function rebuildWorld(keepProgress = true) {
   showOcclusionButton();
   const b = cfg.barricade;
   barVis.box.scale.set(b.width, 0.8, b.height);
+  barOcc.scale.set(b.width * 0.95, 0.7, b.height * 0.98);
+  buildingLayer.set(cfg.buildings);
   barVis.edges.scale.set(b.width, 0.8, b.height);
   if (!keepProgress || !barTracker) {
     barTracker = new BarricadeTracker(cfg.barricadeTracking);
@@ -203,7 +215,6 @@ let inflight = null; // 인식 중인 프레임 {stage, gen, t, now, wc, proj}
 let gen = 0; // AR 세션 번호 (끝난 세션의 늦은 결과는 버림)
 let lastSeen = new Map(); // 마커 id → 마지막으로 본 시각
 let showPath = true, showMarkers = true; // showMarkers: 마커 테두리·인식 표시 (관리자 모드에서만 보임)
-let lastYellow = null; // 인식 표시용: 마지막 영상의 노란 후보와 판정
 // AR 지도 만들기 (setup: 한 바퀴 설치 — 지도 만들기 + 중앙선 찾기를 같이)
 const mapping = { active: false, setup: false, mapper: null, view: null, A0: null, loop: null, finding: false, lastFind: -1e9 };
 let trackingPoor = false;
@@ -494,7 +505,7 @@ function onXRFrame(t, frame) {
   }
   const now = performance.now();
   for (const [id, mat] of markerVis) mat.color.set(now - (lastSeen.get(id) || -1e9) < 600 ? 0x3ddc84 : 0x1f6f45);
-  occlusion.update(frame, pose ? pose.views[0] : null, { enabled: !!pose && cfg.occlusion.enabled !== false && !mapping.active, supported: depth.supported, format: depth.format });
+  occlusion.update(frame, pose ? pose.views[0] : null, { enabled: !!pose && depthWanted() && !mapping.active, supported: depth.supported, format: depth.format });
   renderer.render(scene, camera);
   updateHud(t);
   const ms = performance.now() - w0;
@@ -526,7 +537,6 @@ function collect() {
   if (!img) return;
   const job = inflight;
   job.stage = 'detect';
-  const wantYellow = !mapping.active && fuser.ready && cfg.barricade.color !== false;
   // 경로 기록 중: 차선 맞추기용 도로 영상 모으기 (찍은 순간의 휴대폰 자세 + 지금까지 맞춘 위치)
   let acc = null;
   if (recording.active && !mapping.active && fuser.ready) {
@@ -537,7 +547,7 @@ function collect() {
     const K = intrinsicsFromProjection(job.proj, img.width, img.height);
     acc = { K, pose: liftPose(roadToCv(mapping.A0, job.wc), roadH()), area: null };
   }
-  detectClient.run(img, { yellow: wantYellow, acc }).then((res) => {
+  detectClient.run(img, { acc }).then((res) => {
     if (inflight === job) inflight = null;
     if (!res) return;
     const r = reader;
@@ -592,31 +602,8 @@ function handleDetections(job, img, res) {
   // 지금 카메라에서 본 도로 자세 (마커가 안 보여도 ARCore + 맞춘 위치로 계산)
   const camPose = roadToCv(fuser.result, wc);
   // 바리케이드: 마커 10·11 → 도로 좌표. 여러 프레임 확인 후 등장, 그 자리가 보이는데 안 잡히면 해제
-  let obs = solveBarricade(markers, cfg.barricade, K, camPose);
-  let src = obs ? '마커' : null;
-  // 마커가 안 보이면 노랑·검정 줄무늬 색으로 찾기 (노란 조각 2개 이상인 덩어리 → 패널 높이 면에 투영)
-  if (!obs && cfg.barricade.color !== false) {
-    const zPanel = roadH() + (cfg.barricade.colorHeight ?? cfg.barricade.height * 0.65);
-    const area = workArea();
-    const panelH = cfg.barricade.colorPanelHeight ?? cfg.barricade.height * 0.35;
-    // 노란 덩어리마다 판정하고 이유를 남긴다 (인식 표시 화면용)
-    const items = [];
-    for (const c of res.yellow || []) {
-      const it = { bbox: c.bbox, verdict: '', ok: false, single: c.single };
-      items.push(it);
-      if (c.single) { it.verdict = '줄무늬 아님(노란 조각 1개)'; continue; }
-      const r = clusterToRoad(c, K, camPose, zPanel);
-      if (!r || !inArea(area, r.x, r.y)) { it.verdict = r ? `디오라마 밖 (${r.x.toFixed(0)}, ${r.y.toFixed(0)})cm` : '디오라마 밖'; continue; }
-      const ratio = panelSizeRatio(c, r, K, camPose, zPanel, panelH);
-      const [lo, hi] = cfg.barricade.colorSizeRange || [0.25, 4];
-      if (ratio === null || ratio < lo || ratio > hi) { it.verdict = `크기 안 맞음 ×${ratio === null ? '?' : ratio.toFixed(1)}`; continue; }
-      if (obs) { it.verdict = '다른 후보 사용 중'; continue; }
-      obs = { x: r.x, y: r.y, dx: r.dx, dy: r.dy };
-      src = '색';
-      it.ok = true; it.verdict = `바리케이드 (크기 ×${ratio.toFixed(1)})`;
-    }
-    lastYellow = { w: img.width, h: img.height, items, t: performance.now() };
-  }
+  const obs = solveBarricade(markers, cfg.barricade, K, camPose);
+  const src = obs ? '마커' : null;
   barricadeSeenNow = src;
   let inView = false;
   if (barTracker.est) {
@@ -657,6 +644,7 @@ function centerRay(view) {
   return { o: [M[12], M[13], M[14]], d: d.map((v) => v / L) };
 }
 function onSelect(e) {
+  if (build.active && fuser.ready && lastCenterRay) { addBuildPoint(); return; }
   if (!recording.active || !fuser.ready) return;
   let o, d;
   if (aimOn && lastCenterRay) ({ o, d } = lastCenterRay);
@@ -703,7 +691,7 @@ function setAim(on) {
   try { localStorage.setItem('raim-ar-aim', on ? '1' : '0'); } catch (e) { /* 무시 */ }
   $('recAim').textContent = on ? '조준점 켬' : '조준점 끔(손가락)';
   $('recAim').classList.toggle('off', !on);
-  $('aim').hidden = !(recording.active && on);
+  $('aim').hidden = !((recording.active && on) || build.active);
 }
 // 버튼을 누를 때는 AR 탭(select)이 생기지 않게
 $('ui').addEventListener('beforexrselect', (e) => { if (e.target.closest('button, input, label, .glass, [data-noselect]')) e.preventDefault(); });
@@ -869,14 +857,13 @@ function setRoadHeight(h, msg) {
   flash(msg || `도로 높이 ${cfg.roadHeight >= 0 ? '+' : ''}${cfg.roadHeight.toFixed(2)}cm · 차가 도로에 붙어 보이면 맞아요`, 2500);
 }
 
-// ---------- 인식 표시: 노란 후보 상자 (카메라 영상은 화면과 같은 범위) ----------
-// 화면 전체 크기 캔버스라서, 지우거나 그릴 때마다 AR 화면 위 층 전체를 다시 합성한다 → 그릴 것이 있을 때만, 화면 배율 1로
+// ---------- 인식 표시: 지도 만들기 중 마커 상자 (카메라 영상은 화면과 같은 범위) ----------
+// 화면 전체 크기 캔버스라서, 지우거나 그릴 때마다 AR 화면 위 층 전체를 다시 합성한다 → 그릴 것이 있을 때만
 let dbgDrawn = false, dbgKey = null;
 function drawDetections() {
   const v = mapping.active ? mapping.view : null;
-  const showYellow = !mapping.active && showMarkers && gate.on && lastYellow && lastYellow.items.length > 0 && performance.now() - lastYellow.t <= 1000;
-  const live = mapping.active ? !!v && v.items.length > 0 && performance.now() - v.t <= 800 : !!showYellow;
-  const key = live ? (mapping.active ? v : lastYellow) : null;
+  const live = !!v && v.items.length > 0 && performance.now() - v.t <= 800;
+  const key = live ? v : null;
   if (key === dbgKey) return; // 새 인식 결과가 없으면 그대로
   dbgKey = key;
   const cv = $('dbg');
@@ -889,32 +876,15 @@ function drawDetections() {
   const g = cv.getContext('2d');
   g.clearRect(0, 0, W, H);
   dbgDrawn = true;
-  if (mapping.active) {
-    const sx = W / v.w, sy = H / v.h;
-    g.lineWidth = 3; g.font = '700 13px system-ui, sans-serif';
-    for (const it of v.items) {
-      g.strokeStyle = it.col; g.beginPath();
-      it.c.forEach((p, i) => (i ? g.lineTo(p[0] * sx, p[1] * sy) : g.moveTo(p[0] * sx, p[1] * sy)));
-      g.closePath(); g.stroke();
-      const tw = g.measureText(it.label).width;
-      g.fillStyle = 'rgba(13,17,23,.8)'; g.fillRect(it.c[0][0] * sx, it.c[0][1] * sy - 19, tw + 8, 17);
-      g.fillStyle = it.col; g.fillText(it.label, it.c[0][0] * sx + 4, it.c[0][1] * sy - 6);
-    }
-    return;
-  }
-  const sx = W / lastYellow.w, sy = H / lastYellow.h;
-  g.lineWidth = 2;
-  g.font = '600 12px system-ui, sans-serif';
-  for (const it of lastYellow.items) {
-    const [x0, y0, x1, y1] = it.bbox;
-    const col = it.ok ? '#3ddc84' : it.verdict.startsWith('크기') ? '#ff9f0a' : '#a8b0bb';
-    g.strokeStyle = col;
-    g.strokeRect(x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy);
-    const tw = g.measureText(it.verdict).width;
-    g.fillStyle = 'rgba(13,17,23,.8)';
-    g.fillRect(x0 * sx, y0 * sy - 17, tw + 8, 16);
-    g.fillStyle = col;
-    g.fillText(it.verdict, x0 * sx + 4, y0 * sy - 5);
+  const sx = W / v.w, sy = H / v.h;
+  g.lineWidth = 3; g.font = '700 13px system-ui, sans-serif';
+  for (const it of v.items) {
+    g.strokeStyle = it.col; g.beginPath();
+    it.c.forEach((p, i) => (i ? g.lineTo(p[0] * sx, p[1] * sy) : g.moveTo(p[0] * sx, p[1] * sy)));
+    g.closePath(); g.stroke();
+    const tw = g.measureText(it.label).width;
+    g.fillStyle = 'rgba(13,17,23,.8)'; g.fillRect(it.c[0][0] * sx, it.c[0][1] * sy - 19, tw + 8, 17);
+    g.fillStyle = it.col; g.fillText(it.label, it.c[0][0] * sx + 4, it.c[0][1] * sy - 6);
   }
 }
 
@@ -947,12 +917,8 @@ function updateHud(t) {
   // 인식 · 판단 · 제어 카드 (관람객도 읽을 수 있는 말로, 관리자는 자세한 값 덧붙임)
   const st = controller.state === 'drive' ? '달리는 중' : controller.state === 'brake' ? '속도를 줄이는 중' : '멈춤';
   const onPath = barricade && blocksPath(P, barricade, clearance());
-  const yel = lastYellow && performance.now() - lastYellow.t < 1000 ? lastYellow.items : [];
-  // 줄무늬 후보(노란 조각 2개 이상)가 탈락했을 때만 이유를 보여 줌 (노란 블록 하나는 늘 있을 수 있어서 제외)
-  const rej = barricadeSeenNow ? [] : yel.filter((i) => !i.single && !i.ok);
-  const rejected = rej.length ? ` · 노랑 후보 ${rej.length}개(${rej[0].verdict})` : '';
   setText('hudSense', (barricadeSeenNow ? `바리케이드를 찾았어요${gate.on ? `(${barricadeSeenNow})` : ''}` : barricade ? '바리케이드를 기억하고 있어요' : '길 위에 장애물이 없어요') +
-    (gate.on ? ` · 도로 마커 ${seen}개${rejected}` : ''));
+    (gate.on ? ` · 도로 마커 ${seen}개` : ''));
   setText('hudJudge', !barricade ? '가는 길이 비어 있어요' : !onPath ? '바리케이드가 있지만 길 밖이에요'
     : controller.gap !== null ? `길을 막고 있어요 · 앞 ${controller.gap.toFixed(1)}cm` : '길 위에 있지만 아직 멀어요');
   setText('hudControl', `${st} · ${controller.v.toFixed(1)}cm/s`);
@@ -988,6 +954,8 @@ function updateHud(t) {
       : `등록 ${st.confirmed.length}개 (${st.confirmed.join(', ')})${st.pending.length ? ` · 확인 중 ${st.pending.map((q) => q.id).join(', ')}` : ''} · 다 비췄으면 [완료·저장]`;
     setText('mapStat', msg);
     ok = st.confirmed.length > 0;
+  } else if (build.active && fuser.ready) {
+    msg = buildGuide(); ok = true;
   } else if (heightMeasure.active) msg = `도로 면을 찾는 중… 도로 위를 비스듬히 비춰 주세요 (${heightMeasure.samples.length}점)`;
   else if (trackingPoor) msg = '카메라 추적이 불안정해요 · 천천히 움직이며 바닥을 비춰 주세요';
   else if (!fuser.ready) msg = `디오라마 테두리의 도로 마커를 비춰 주세요 · 위치 맞추는 중 ${fuser.count}/${fuser.minCount}`;
@@ -1018,8 +986,10 @@ $('btnRealignV').onclick = () => { fuser.reset(); roadTracker.reset(); barTracke
 // 관람객: 시작 → AR → 정해진 경로로 차가 달리는 걸 봄. 설정(⚙) → 암호 → 관리자 모드(지도·경로·차 크기·속도·높이 조정)
 const gate = createAdminGate({
   rootFor: () => (session ? $('ui') : document.body),
-  isBusy: () => recording.active || mapping.active,
+  isBusy: () => recording.active || mapping.active || build.active,
   onChange: (on) => {
+    if (!on && build.active) setBuild(false);
+    buildingLayer.vis.visible = on && (showBuildings || build.active);
     if (!on) { // 관람 모드로: 하던 관리 작업은 취소
       if (recording.active) setRecording(false);
       if (mapping.setup) { setSetup(false); fuser.reset(); roadTracker.reset(); rebuildWorld(true); } else if (mapping.active) setMapping(false);
@@ -1226,14 +1196,18 @@ $('heightUp').onclick = () => setRoadHeight(roadH() + markerSize() / 40);
 $('heightDown').onclick = () => setRoadHeight(roadH() - markerSize() / 40);
 // 가림 처리 켜기·끄기 (이 기기에 저장), 깊이 보기 (현장 확인용: 가까울수록 빨강, 멀수록 파랑)
 function showOcclusionButton() {
-  const on = cfg.occlusion.enabled !== false;
-  $('btnOcclusion').textContent = on ? '가림 켬' : '가림 끔';
+  const on = cfg.occlusion.enabled !== false && (!hasBuildings() || cfg.occlusion.depthWithBuildings === true);
+  $('btnOcclusion').textContent = on ? '깊이 가림 켬' : '깊이 가림 끔';
   $('btnOcclusion').classList.toggle('off', !on);
 }
-function setOcclusion(on) { cfg.occlusion.enabled = on; save(); showOcclusionButton(); }
+function setOcclusion(on) {
+  if (hasBuildings()) { cfg.occlusion.depthWithBuildings = on; if (on) cfg.occlusion.enabled = true; } else cfg.occlusion.enabled = on;
+  save(); showOcclusionButton();
+}
 $('btnOcclusion').onclick = () => {
-  setOcclusion(cfg.occlusion.enabled === false);
-  flash(cfg.occlusion.enabled === false ? '가림 처리를 껐어요' : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
+  const now = cfg.occlusion.enabled !== false && (!hasBuildings() || cfg.occlusion.depthWithBuildings === true);
+  setOcclusion(!now);
+  flash(now ? (hasBuildings() ? '깊이 가림을 껐어요 · 등록한 건물로만 가려요' : '가림 처리를 껐어요') : session && !depth.requested ? '가림 처리를 켰어요 · AR을 껐다 다시 시작하면 적용돼요' : depth.supported ? '가림 처리를 켰어요 · 건물 뒤로 가면 차가 가려져요' : '가림 처리를 켰어요 · 다만 이 기기는 깊이 인식을 지원하지 않아요', 3000);
 };
 $('btnDepthView').onclick = () => { showDepth = !showDepth; occlusion.setShowDepth(showDepth); $('btnDepthView').classList.toggle('off', !showDepth); };
 $('btnDepthView').classList.add('off');
@@ -1278,6 +1252,94 @@ applySharedConfig(false);
 $('btnExport').onclick = () => { downloadShared(cfg); $('sharedMsg').textContent = 'diorama.json을 받았어요. 이 파일을 사이트에 올리면 모든 기기가 같은 지도·경로를 써요.'; };
 $('btnShared').onclick = () => applySharedConfig(true);
 
+// ---------- 건물 등록 (가림) ----------
+// 관리자: [건물 등록] → 종류 고르기 → 조준점(+)으로 바닥 모서리를 차례로 톡(네모는 3번: 한 변 두 점 + 반대쪽 변) →
+// 높이(숫자 또는 [꼭대기 높이 재기]) → [이 모양 저장]. 천막은 [처마(아래) 높이 재기]로 아래 빈 높이도. 나무는 가운데 한 번 톡 + 반지름.
+const BUILD_HELP = {
+  building: '바닥 모서리를 조준점(+)으로 톡: 네모는 한 변의 두 점 + 반대쪽 변 한 점(3번), 다른 모양은 둘레를 차례로. 그다음 꼭대기를 조준하고 [꼭대기 높이 재기].',
+  canopy: '천막 지붕 아래 둘레(기둥 자리)를 톡(네모는 3번). [꼭대기 높이 재기] → 지붕 아래 끝(처마)을 조준하고 [처마(아래) 높이 재기]. 처마 아래로는 차가 보여요.',
+  tree: '나무 줄기 자리를 톡(한 번). 잎 덩어리 반지름과 높이를 적거나, 꼭대기를 조준해 [꼭대기 높이 재기].',
+};
+function draftBuilding() {
+  const n = (id) => parseFloat($(id).value);
+  return { kind: build.kind, pts: build.pts.map((p) => p.slice()), base: +roadH().toFixed(2), h: n('buildH'), under: build.kind === 'canopy' ? n('buildUnder') : 0,
+    peak: build.kind === 'tree' ? 0 : n('buildPeak') || 0, r: build.kind === 'tree' ? n('buildR') : undefined };
+}
+function refreshBuild() {
+  const d = draftBuilding();
+  buildingLayer.setDraft(build.active ? d : null);
+  for (const b of $('buildKinds').querySelectorAll('button')) b.classList.toggle('on', b.dataset.kind === build.kind);
+  for (const el of document.querySelectorAll('#buildBar .bk-canopy')) el.hidden = build.kind !== 'canopy';
+  for (const el of document.querySelectorAll('#buildBar .bk-tree')) el.hidden = build.kind !== 'tree';
+  for (const el of document.querySelectorAll('#buildBar .bk-roof')) el.hidden = build.kind === 'tree';
+  $('buildHelp').textContent = BUILD_HELP[build.kind];
+  const list = cfg.buildings || [];
+  const cnt = Object.keys(KIND_NAME).map((k) => [k, list.filter((b) => b.kind === k).length]).filter(([, c]) => c).map(([k, c]) => `${KIND_NAME[k]} ${c}`).join(' · ');
+  $('buildStat').textContent = `등록 ${list.length}개${cnt ? ` (${cnt})` : ''} · 지금 점 ${build.pts.length}개`;
+  $('buildSave').disabled = !validBuilding(d);
+}
+function buildGuide() {
+  const d = draftBuilding(), name = KIND_NAME[build.kind];
+  if (build.kind === 'tree') return build.pts.length ? `${name} 자리 찍음 · 높이·반지름을 맞추고 [이 모양 저장]` : `조준점(+)을 ${name} 줄기 자리에 맞추고 톡`;
+  if (build.pts.length < 3) return `조준점(+)을 ${name} 바닥 모서리에 맞추고 톡 · ${build.pts.length}/3`;
+  return validBuilding(d) ? `${name} 모양(분홍)이 실제와 겹치나요? · 높이를 맞추고 [이 모양 저장]` : `${name}: 높이를 확인해 주세요`;
+}
+function setBuild(on) {
+  build.active = on; build.pts = [];
+  if (on && recording.active) setRecording(false);
+  $('buildBar').hidden = !on;
+  $('mainButtons').hidden = on;
+  buildingLayer.vis.visible = gate.on && (showBuildings || on);
+  setAim(aimOn);
+  refreshBuild();
+}
+function addBuildPoint() {
+  const { o, d } = lastCenterRay;
+  const q = rayToRoad(fuser.result, o, d, roadH());
+  if (!q) return;
+  const p = [+q[0].toFixed(2), +q[1].toFixed(2)];
+  if (build.kind === 'tree') build.pts = [p]; else build.pts.push(p);
+  refreshBuild();
+}
+// 조준점이 가리키는 높이: 바닥 가운데 위로 세운 세로줄과 시선이 가장 가까운 곳
+function measureBuildHeight(inputId) {
+  if (!fuser.ready || !lastCenterRay || !build.pts.length) { flash('먼저 바닥 자리를 찍어 주세요'); return; }
+  const d = draftBuilding();
+  const c = build.kind === 'tree' || build.pts.length < 3 ? centroid(build.pts) : centroid(footprint(d));
+  const { O, D } = rayInRoad(fuser.result, lastCenterRay.o, lastCenterRay.d);
+  const z = heightOnVertical(O, D, c[0], c[1]);
+  if (z === null || z - roadH() <= 0.2) { flash('높이를 못 쟀어요 · 조준점을 꼭대기 끝에 맞추고 옆에서 비스듬히 봐 주세요'); return; }
+  $(inputId).value = (z - roadH()).toFixed(1);
+  refreshBuild();
+  flash(`높이 ${(z - roadH()).toFixed(1)}cm`, 1500);
+}
+$('btnBuild').onclick = () => { if (!fuser.ready) { flash('먼저 마커로 위치를 맞춰 주세요'); return; } setBuild(true); };
+$('buildClose').onclick = () => setBuild(false);
+$('buildKinds').onclick = (e) => { const k = e.target.closest('button') && e.target.closest('button').dataset.kind; if (k) { build.kind = k; build.pts = []; refreshBuild(); } };
+for (const id of ['buildH', 'buildUnder', 'buildPeak', 'buildR']) $(id).oninput = refreshBuild;
+$('buildUndo').onclick = () => { build.pts.pop(); refreshBuild(); };
+$('buildMeasureTop').onclick = () => measureBuildHeight('buildH');
+$('buildMeasureUnder').onclick = () => measureBuildHeight('buildUnder');
+$('buildSave').onclick = () => {
+  const d = draftBuilding();
+  if (!validBuilding(d)) return;
+  cfg.buildings = [...(cfg.buildings || []), d];
+  save(); buildingLayer.set(cfg.buildings); build.pts = []; refreshBuild(); showOcclusionButton();
+  flash(`${KIND_NAME[d.kind]}을(를) 저장했어요 · 모두 ${cfg.buildings.length}개${session && depth.requested ? ' · 깊이 가림은 다음 AR 시작부터 꺼져요' : ''}`, 2500);
+};
+$('buildDelLast').onclick = () => {
+  if (!(cfg.buildings || []).length) return;
+  cfg.buildings = cfg.buildings.slice(0, -1);
+  save(); buildingLayer.set(cfg.buildings); refreshBuild(); showOcclusionButton();
+  flash(`마지막 모양을 지웠어요 · ${cfg.buildings.length}개 남음`, 2000);
+};
+$('btnShowBuild').onclick = () => {
+  showBuildings = !showBuildings;
+  buildingLayer.vis.visible = gate.on && (showBuildings || build.active);
+  $('btnShowBuild').classList.toggle('off', !showBuildings);
+};
+$('btnShowBuild').classList.add('off');
+
 // 시험용
 window.__raimAR = {
   setCarS: (v) => { controller.s = v; controller.v = 0; }, // 차를 경로 위 한 자리로 (가림 시험)
@@ -1285,6 +1347,10 @@ window.__raimAR = {
   detections: () => detCount,
   injectFrameError: () => { injectError = true; }, // 시험: 다음 프레임에서 오류
   carFlow: () => carFlow,
+  buildings: () => ({ count: buildingLayer.count, cfg: cfg.buildings, draft: draftBuilding(), active: build.active, visVisible: buildingLayer.vis.visible,
+    boxes: buildingLayer.occ.children.map((m) => { m.geometry.computeBoundingBox(); const b = m.geometry.boundingBox; return [b.min.x, b.min.y, b.min.z, b.max.x, b.max.y, b.max.z].map((v) => +v.toFixed(2)); }) }),
+  addBuildPointAt: (x, y) => { build.pts.push([x, y]); refreshBuild(); }, // 시험: 조준 없이 바닥 점
+  measureFromRay: (o, d, id) => { lastCenterRay = { o, d }; measureBuildHeight(id); },
   carVehicle: () => (carObj && carObj.userData.vehicle) || null,
   peek: () => ({ open: carObj.userData.open, dist: lastPeekDist, ...peekRange() }),
   setPeekRange: (near, far) => { cfg.car.peekNear = near; cfg.car.peekFar = far; }, // 시험: 지붕 열리는 거리(m), 저장 안 함
@@ -1292,7 +1358,6 @@ window.__raimAR = {
   get state() {
     return { roadMarkers: cfg.roadMarkers, path: cfg.path, ready: fuser.ready, count: fuser.count, align: fuser.result, s: controller.s, v: controller.v,
       carState: controller.state, gap: controller.gap, barricade, barricadeSeenNow, recPts: recording.pts, snapped: recording.snapped, lastSnap, partial: recording.partial, scan: scanCoverage(),
-      yellow: lastYellow ? lastYellow.items.map((i) => i.verdict) : [],
       mapping: mapping.active ? mapping.mapper.status() : null,
       setup: mapping.setup ? { A0: mapping.A0, loop: mapping.loop && { ok: mapping.loop.ok, found: mapping.loop.found, refined: mapping.loop.refined, length: mapping.loop.length } } : null, lastMapResult, card: cardMean(1000), cardHist: card.hist.length, roadHeight: roadH(),
       detectMode: detectClient.mode, detMs, perf: perf.last, lite: LITE, liteDepth, frameErrors, depthRequested: depth.requested, antialias: !LITE, fbScale: FB_SCALE, hitTest: !!hitSource, camPixels: reader ? reader.w * reader.h : 0, admin: gate.on, occlusion: cfg.occlusion.enabled !== false, occlusionStatus: occlusion.status, aimOn, recFlags: recording.pts.map((p) => tapState.get(p) || null), snapWeak: recording.snapWeak, gpu: { ...renderer.info.memory } };
