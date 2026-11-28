@@ -361,7 +361,8 @@ body.admin .start-btn { min-height: 76px; min-width: 240px; padding: 14px 48px; 
     <button class="btn ghost round" id="btnGearAR" aria-label="설정 (관리자)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z"/></svg></button>
   </div>
   <div id="bottom">
-    <div id="hud" class="hud-cards">
+    <!-- 인식·판단·제어 카드: 관리자 모드에서만 (관람객 화면은 차와 안내 문구만) -->
+    <div id="hud" class="hud-cards admin-only">
       <div class="hud-card glass solid" id="cardSense"><div class="hud-head"><span class="dot">1</span><h3>인식</h3><small>무엇이 보이나</small></div><div class="hud-body" id="hudSense">-</div></div>
       <div class="hud-card glass solid" id="cardJudge"><div class="hud-head"><span class="dot">2</span><h3>판단</h3><small>길을 막고 있나</small></div><div class="hud-body" id="hudJudge">-</div></div>
       <div class="hud-card glass solid" id="cardControl"><div class="hud-head"><span class="dot">3</span><h3>제어</h3><small>어떻게 움직이나</small></div><div class="hud-body" id="hudControl">-</div><div class="gauge"><div id="speedBar"></div></div></div>
