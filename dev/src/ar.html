@@ -35,22 +35,89 @@
     text-shadow: 0 2px 24px rgba(255,255,255,.9); }
   body.admin .start-title { font-size: 2.4rem; margin-bottom: 4px; }
   /* 도안 스캔 */
-  .scan-screen { position: fixed; inset: 0; background: #111; z-index: 5; }
+  .scan-screen { position: fixed; inset: 0; background: #111; z-index: 5;
+    --fh: min(calc(100vh - 236px), 120vw); --fw: calc(var(--fh) * 210 / 297); }
   .scan-screen video, .scan-screen #scanOverlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .scan-frame { position: absolute; left: 50%; top: calc(50% - 8px); height: min(calc(100vh - 230px), 120vw); aspect-ratio: 210 / 297; transform: translate(-50%, -50%);
-    border: 3px dashed rgba(255,255,255,.75); border-radius: 12px; pointer-events: none; }
-  .scan-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; gap: 12px; align-items: center; }
-  .scan-guide { flex: 1; padding: 12px 20px; border-radius: 999px; font-size: 1.12rem; font-weight: 650; color: var(--c-301); text-align: center; }
-  .scan-guide.ok { color: #0f8f96; }
-  .scan-steps { position: absolute; top: 76px; left: 0; right: 0; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; pointer-events: none; }
-  .scan-steps .step { padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,.82); color: var(--fg-2); font-weight: 650; font-size: .95rem; }
-  .scan-steps .step.done { background: #1fbdc6; color: #fff; }
-  .scan-steps .step.vehicle { background: var(--c-301); color: #fff; }
-  .scan-bottom { position: absolute; left: 16px; right: 16px; bottom: 18px; display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+  /* 종이를 맞출 자리: 표식 4개가 다 보이면 초록 실선 */
+  .scan-frame { position: absolute; left: 50%; top: calc(50% - 6px); height: var(--fh); aspect-ratio: 210 / 297; transform: translate(-50%, -50%);
+    border: 3px dashed rgba(255,255,255,.8); border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(0,0,0,.28); transition: border-color .2s ease; }
+  .scan-frame.ready { border: 4px solid #3ddc84; }
+  .scan-top { position: absolute; top: 14px; left: 16px; right: 16px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; }
+  .scan-top > :first-child { justify-self: start; }
+  /* 큰 안내 카드: 무엇을 할지(제목) + 어떻게(설명) + 작은 도안 그림(찾은 모서리가 초록) */
+  .scan-card { position: absolute; display: flex; gap: 18px; align-items: center; padding: 20px 22px; border-radius: 20px; }
+  .scan-text { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .scan-chip { align-self: flex-start; padding: 4px 12px; border-radius: 999px; background: var(--c-301); color: #fff; font-weight: 700; font-size: .9rem; }
+  .scan-title { font-size: clamp(1.6rem, 4vmin, 2.25rem); font-weight: 800; line-height: 1.28; letter-spacing: -0.03em; color: var(--c-301); }
+  .scan-title.ok { color: #0b7d84; }
+  .scan-sub { margin: 0; font-size: 1.1rem; font-weight: 600; line-height: 1.5; color: var(--fg-2); white-space: pre-line; }
+  .scan-sheet { flex-shrink: 0; width: 88px; }
+  .scan-sheet svg { display: block; width: 100%; height: auto; filter: drop-shadow(0 4px 10px rgba(0,40,90,.18)); }
+  .scan-sheet .mk { fill: #1d2a36; transition: fill .15s ease; }
+  .scan-sheet .mk.on { fill: #22b866; }
+  .scan-sheet.hunt .mk:not(.on) { animation: mk-blink 1.4s ease-in-out infinite; }
+  @keyframes mk-blink { 50% { fill: #00bfdf; } }
+  @media (prefers-reduced-motion: reduce) { .scan-sheet.hunt .mk:not(.on) { animation: none; } }
+  /* 가로 화면(태블릿): 카드는 종이 자리 왼쪽, 세로 가운데 */
+  @media (orientation: landscape) and (min-width: 900px) {
+    .scan-card { left: 20px; top: 50%; transform: translateY(-50%); width: min(400px, calc(50vw - var(--fw) / 2 - 40px)); flex-direction: column; align-items: stretch; text-align: left; }
+    .scan-sheet { width: 96px; }
+  }
+  /* 세로 화면: 카드는 위, 종이 자리는 그 아래 */
+  @media (orientation: portrait), (max-width: 899px) {
+    .scan-screen { --fh: min(calc(100vh - 420px), calc((100vw - 48px) * 297 / 210)); }
+    .scan-frame { top: calc(50% + 72px); }
+    .scan-card { left: 16px; right: 16px; top: 84px; margin: 0 auto; max-width: 720px; }
+  }
+  .scan-bottom { position: absolute; left: 16px; right: 16px; bottom: 18px; display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px; align-items: center; }
+  .scan-bottom > :last-child { justify-self: start; }
   .scan-shot { min-height: 84px; min-width: 200px; border-radius: 999px; font-size: 1.6rem; font-weight: 750; box-shadow: 0 0 0 8px rgba(255,255,255,.35); }
+  .scan-shot:disabled { opacity: .6; background: #3a4655; }
+  /* 진행 단계: 1 겉모습 → 2 앞·뒤와 실내 → 3 나만의 차 확인 (스캔·미리보기 공통) */
+  .stepper-wrap { padding: 8px 18px; border-radius: 999px; }
+  .stepper { list-style: none; margin: 0; padding: 0; display: flex; align-items: center; gap: 8px; }
+  .st { display: flex; align-items: center; gap: 8px; color: var(--fg-3); font-weight: 650; font-size: 1rem; white-space: nowrap; }
+  .st + .st::before { content: ""; width: 32px; height: 3px; border-radius: 2px; background: rgba(0,68,139,.16); margin-right: 2px; }
+  .st.done + .st::before { background: var(--c-319); }
+  .st-dot { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-weight: 800; font-size: 1rem;
+    background: #fff; border: 2px solid rgba(0,68,139,.2); color: var(--fg-3); }
+  .st-dot svg { width: 18px; height: 18px; }
+  .st-label { display: flex; flex-direction: column; line-height: 1.15; }
+  .st-label small { font-size: .74rem; font-weight: 700; color: var(--fg-3); letter-spacing: .02em; }
+  .st.done { color: #0b7d84; }
+  .st.done .st-dot { background: var(--c-319); border-color: var(--c-319); color: #fff; }
+  .st.current { color: var(--c-301); font-weight: 800; }
+  .st.current .st-dot { background: var(--c-301); border-color: var(--c-301); color: #fff; box-shadow: 0 0 0 4px rgba(0,68,139,.18); }
+  .st.current .st-label small { color: var(--c-2985); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (max-width: 599px) {
+    .stepper-wrap { padding: 6px 10px; }
+    .st { font-size: .8rem; gap: 5px; }
+    .st + .st::before { width: 10px; }
+    .st-dot { width: 26px; height: 26px; font-size: .82rem; }
+    .st-label small { display: none; }
+    .st:not(.current) .st-label { display: none; } /* 좁은 화면: 지금 단계 이름만 */
+    .scan-top { grid-template-columns: auto 1fr; }
+    .scan-top > .stepper-wrap { justify-self: end; }
+    .scan-top > :last-child:not(.stepper-wrap) { display: none; }
+    .scan-card { padding: 14px 16px; gap: 12px; }
+    .scan-title { font-size: 1.3rem; }
+    .scan-sub { font-size: .95rem; }
+    .scan-sheet { width: 60px; }
+    .scan-shot { min-width: 150px; min-height: 72px; font-size: 1.4rem; }
+    .scan-bottom { grid-template-columns: auto auto; justify-content: center; }
+    .scan-bottom > :first-child { display: none; }
+  }
   /* 미리보기 */
   .preview-screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 16px 24px; gap: 12px; z-index: 5; overflow: auto; }
-  .preview-title { font-size: 1.7rem; text-align: center; }
+  .preview-top { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; flex-shrink: 0; }
+  .preview-top > :first-child { justify-self: start; }
+  .preview-title { font-size: clamp(1.6rem, 2.6vw, 2.1rem); font-weight: 800; letter-spacing: -0.03em; }
+  @media (max-width: 599px) {
+    .preview-top { grid-template-columns: auto 1fr; }
+    .preview-top > .stepper-wrap { justify-self: end; }
+    .preview-top > :last-child:not(.stepper-wrap) { display: none; }
+  }
   .preview-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 18px; }
   .preview-3d { min-height: 300px; border-radius: 20px; overflow: hidden; }
   .preview-3d canvas { width: 100%; height: 100%; display: block; }
@@ -125,31 +192,49 @@
 <div id="scan" class="scan-screen" hidden lang="ko">
   <video id="scanVideo" playsinline muted autoplay></video>
   <canvas id="scanOverlay"></canvas>
-  <div class="scan-frame" aria-hidden="true"></div>
+  <div class="scan-frame" id="scanFrame" aria-hidden="true"></div>
   <header class="scan-top">
     <button class="btn ghost small" id="scanBack">처음으로</button>
-    <div class="scan-guide glass solid" id="scanGuide" aria-live="polite">-</div>
+    <nav class="stepper-wrap glass solid" id="scanSteps" aria-label="진행 단계"></nav>
+    <span></span>
   </header>
-  <div class="scan-steps" id="scanSteps"></div>
+  <section class="scan-card glass solid" aria-live="polite">
+    <!-- 작은 도안 그림: 네 모서리 검은 무늬. 카메라에서 찾은 모서리는 초록 -->
+    <div class="scan-sheet hunt" id="scanSheet" aria-hidden="true">
+      <svg viewBox="0 0 210 297"><rect x="1" y="1" width="208" height="295" rx="10" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+        <rect x="58" y="22" width="94" height="10" rx="5" fill="#dfe7f0"/>
+        <rect x="30" y="90" width="150" height="56" rx="24" fill="none" stroke="#b8c6d6" stroke-width="5"/>
+        <circle cx="66" cy="148" r="13" fill="#b8c6d6"/><circle cx="144" cy="148" r="13" fill="#b8c6d6"/>
+        <rect x="30" y="186" width="150" height="56" rx="24" fill="none" stroke="#b8c6d6" stroke-width="5"/>
+        <circle cx="66" cy="244" r="13" fill="#b8c6d6"/><circle cx="144" cy="244" r="13" fill="#b8c6d6"/>
+        <rect class="mk" data-c="0" x="8" y="8" width="30" height="30" rx="3"/><rect class="mk" data-c="1" x="172" y="8" width="30" height="30" rx="3"/>
+        <rect class="mk" data-c="2" x="172" y="259" width="30" height="30" rx="3"/><rect class="mk" data-c="3" x="8" y="259" width="30" height="30" rx="3"/></svg>
+    </div>
+    <div class="scan-text">
+      <span class="scan-chip" id="scanChip" hidden></span>
+      <h2 class="scan-title" id="scanGuide">-</h2>
+      <p class="scan-sub" id="scanSub"></p>
+    </div>
+  </section>
   <div class="scan-bottom">
-    <button class="btn ghost" id="scanPhoto">사진 고르기</button>
+    <span></span>
     <button class="btn primary scan-shot" id="scanShot" disabled>찍기</button>
     <button class="btn ghost" id="scanSkip">기본 차로 달리기</button>
   </div>
-  <input type="file" id="scanFile" accept="image/*" hidden>
 </div>
 
 <!-- ───── 나만의 차 미리보기 ───── -->
 <div id="preview" class="preview-screen" hidden lang="ko">
   <div class="room-bg"></div>
-  <header class="topbar">
+  <header class="preview-top">
     <button class="btn ghost small" id="previewBack">처음으로</button>
-    <h2 id="previewTitle" class="preview-title">나만의 차가 완성됐어요!</h2>
+    <nav class="stepper-wrap glass solid" id="previewSteps" aria-label="진행 단계"></nav>
     <span></span>
   </header>
   <main class="preview-main">
     <div class="preview-3d glass"><canvas id="previewCanvas"></canvas></div>
     <aside class="preview-side">
+      <h2 id="previewTitle" class="preview-title">나만의 차가 완성됐어요!</h2>
       <div id="previewFlatWrap" class="preview-flat glass"><div class="flats"><canvas id="previewFlat"></canvas><canvas id="previewFlat2"></canvas></div><p class="muted">찍은 도안</p></div>
       <p class="preview-hint">AR에서 태블릿을 차에 <b>가까이</b> 가져가면 지붕이 사라지고 차 안이 보여요.</p>
       <div class="preview-buttons">

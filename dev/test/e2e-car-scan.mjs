@@ -20,7 +20,8 @@ const out = process.argv[2] || new URL('.', import.meta.url).pathname;
 const PDF = fileURLToPath(new URL('../../RAIM-AR-차도안.pdf', import.meta.url));
 let fails = 0;
 const ok = (c, msg) => { console.log(`  ${c ? '통과' : '실패'} ${msg}`); if (!c) fails++; };
-const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+// 가짜 카메라: 스캔 화면이 '카메라를 열 수 없어요'가 아니라 평소 첫 안내를 보이게
+const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
 
 // 1) 도안 쪽 그림 (200dpi) → 꾸미기 → 비스듬히 찍은 사진
 const tmp = mkdtempSync(join(tmpdir(), 'carscan-'));
@@ -84,6 +85,17 @@ console.log('[스캔: 두 장]');
 await page.click('#btnStart');
 await page.waitForFunction(() => !document.getElementById('scan').hidden);
 await page.waitForTimeout(600);
+// 처음 보는 사람용 안내: 진행 단계 3개(1단계가 지금), 큰 안내 제목, 사진 고르기 버튼 없음
+const first = await page.evaluate(() => ({
+  steps: [...document.querySelectorAll('#scanSteps .st')].map((li) => `${li.className.replace('st ', '')}:${li.querySelector('.st-label').lastChild.textContent}`),
+  title: document.getElementById('scanGuide').textContent,
+  titlePx: parseFloat(getComputedStyle(document.getElementById('scanGuide')).fontSize),
+  photo: !!document.getElementById('scanPhoto') || !!document.getElementById('scanFile'),
+}));
+ok(first.steps.join(' > ') === 'current:겉모습 > todo:앞·뒤와 실내 > todo:나만의 차 확인', `진행 단계: ${first.steps.join(' > ')}`);
+ok(first.title === '도안 한 장을 비춰 주세요' && first.titlePx >= 24, `큰 안내 '${first.title}' (${first.titlePx}px)`);
+ok(!first.photo, '사진 고르기 없음');
+await page.screenshot({ path: `${out}/car-2a-scan-first.png` });
 const scanPhoto = (b64) => page.evaluate(async (b64) => {
   const bmp = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
   const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
@@ -95,8 +107,9 @@ let r = await scanPhoto(photoTruck);
 ok(r.ok && r.vehicle === 'truck' && r.page === 'ext', `배송 트럭 ① 찾음 (표식 ${r.found})`);
 r = await scanPhoto(photoInt);
 ok(r.ok && r.vehicle === 'taxi' && r.page === 'int', `로보택시 ② 찾음 (표식 ${r.found}, 귀퉁이 오차 ${r.err && r.err.toFixed(2)}px) → 로보택시로 새로 시작`);
-const steps = await page.textContent('#scanSteps');
-ok(/✓ ② 앞·뒤와 실내/.test(steps) && !/✓ ①/.test(steps) && /로보택시/.test(steps), `진행 표시: ${steps}`);
+const steps = await page.evaluate(() => [...document.querySelectorAll('#scanSteps .st')].map((li) => li.className.replace('st ', '')).join(' > '));
+const chip = await page.textContent('#scanChip');
+ok(steps === 'current > done > todo' && chip === '로보택시 도안', `진행 표시: ${steps} · ${chip}`);
 ok(/① 겉모습 장을 비춰/.test(await page.textContent('#scanGuide')), `안내: ${await page.textContent('#scanGuide')}`);
 await page.screenshot({ path: `${out}/car-2-scan.png` });
 r = await scanPhoto(photoExt);
@@ -125,6 +138,8 @@ ok(info.glass[2] > info.glass[0] + 15 && info.glass[2] > 190, `창문 → 연한
 ok(near(info.roof, [255, 159, 178], 10), `지붕 색 조각 rgb(${info.roof})`);
 ok(near(info.blue, BLUE, 95), `실내 파랑 칠 → rgb(${info.blue})`);
 ok(/로보택시/.test(await page.textContent('#previewTitle')), `미리보기 제목: ${await page.textContent('#previewTitle')}`);
+const pvSteps = await page.evaluate(() => [...document.querySelectorAll('#previewSteps .st')].map((li) => li.className.replace('st ', '')).join(' > '));
+ok(pvSteps === 'done > done > current', `미리보기 진행 단계: ${pvSteps}`);
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/car-3-preview.png` });
 await page.click('#btnInside');
