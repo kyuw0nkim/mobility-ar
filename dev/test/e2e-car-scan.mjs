@@ -121,7 +121,7 @@ ok(info.roofPicked && info.roofColor === '#ff9fb2', `✓한 지붕 색 ${info.ro
 ok(info.name && info.nameDark > 200, `이름 글씨를 옆면 이름 자리에 넣음 (어두운 점 ${info.nameDark})`);
 const near = (a, b, t) => Math.hypot(...a.map((v, i) => v - b[i])) < t;
 info.red.forEach((c, i) => ok(near(c, RED, 95), `${i ? '왼쪽' : '오른쪽'} 옆면 빨강 칠 → rgb(${c})`));
-ok(info.glass[2] > info.glass[0] + 15 && info.glass[0] + info.glass[1] + info.glass[2] < 330, `창문 → 어두운 유리색 rgb(${info.glass})`);
+ok(info.glass[2] > info.glass[0] + 15 && info.glass[2] > 190, `창문 → 연한 하늘색 유리 rgb(${info.glass})`);
 ok(near(info.roof, [255, 159, 178], 10), `지붕 색 조각 rgb(${info.roof})`);
 ok(near(info.blue, BLUE, 95), `실내 파랑 칠 → rgb(${info.blue})`);
 ok(/로보택시/.test(await page.textContent('#previewTitle')), `미리보기 제목: ${await page.textContent('#previewTitle')}`);

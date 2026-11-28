@@ -6,22 +6,22 @@
 import { CAR_TEMPLATES, PAPER } from './car-templates.js';
 
 export const SCALE = 4; // px/mm (스캔·빈 도안 모두)
-export const GLASS = '#1f3349';
+export const GLASS = '#a9d4ee';
 // 재질 지도 (three.js: 초록 = 거칠기, 파랑 = 금속성). 차체는 반들한 도장, 유리는 매끈하게 비춤
-const MAT_BODY = 'rgb(0,115,13)', MAT_GLASS = 'rgb(0,18,150)';
+const MAT_BODY = 'rgb(0,115,13)', MAT_GLASS = 'rgb(0,18,70)';
 // 유리 칠: 위가 밝고 아래가 어두운 그라데이션 + 비스듬한 빛 줄기 (가벼운 모드처럼 반사가 없어도 유리처럼 보이게)
 function paintGlass(ctx, path, rects) {
   if (!rects.length) return;
   const y0 = Math.min(...rects.map((r) => r[1])) * K, y1 = Math.max(...rects.map((r) => r[3])) * K;
   const x0 = Math.min(...rects.map((r) => r[0])) * K, x1 = Math.max(...rects.map((r) => r[2])) * K;
   const g = ctx.createLinearGradient(0, y0, 0, y1);
-  g.addColorStop(0, '#3d5f82'); g.addColorStop(0.45, '#22394f'); g.addColorStop(1, '#152434');
+  g.addColorStop(0, '#e4f4fd'); g.addColorStop(0.45, '#b2dbf2'); g.addColorStop(1, '#86bfe2');
   ctx.save();
   ctx.clip(path, 'evenodd');
   ctx.fillStyle = g;
   ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
   const h = y1 - y0;
-  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
   for (let x = x0 + h * 0.6; x < x1; x += h * 3.2) {
     ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x + h * 0.45, y0); ctx.lineTo(x - h * 0.35, y1); ctx.lineTo(x - h * 0.8, y1); ctx.closePath(); ctx.fill();
   }
