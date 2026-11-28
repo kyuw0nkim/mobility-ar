@@ -1,9 +1,11 @@
 // 관람객 흐름: [시작하기] → 도안 두 장 스캔(① 겉모습, ② 앞·뒤와 실내, 순서 상관없음) → 3D 미리보기 → [이 차로 달리기] → AR
+//  - 화면 위 진행 단계: 1 겉모습 → 2 앞·뒤와 실내 → 3 나만의 차 확인 (찍은 쪽은 ✓, 지금 할 단계는 진하게)
+//  - 큰 안내 카드: 제목(무엇을) + 설명(어떻게) + 작은 도안 그림(카메라에서 찾은 모서리 무늬가 초록)
 //  - 표식 번호로 어느 차(PBV·로보택시·배송 트럭)의 몇 쪽인지 알아서, 아무 장이나 먼저 비춰도 된다
 //  - 한 장만 찍고 [이 장만으로 만들기]를 누르면 나머지 쪽은 빈 도안 그림으로
 // 카메라(getUserMedia)는 미리보기로 넘어갈 때 끈다 (AR이 시작될 때 ARCore가 카메라를 써야 해서).
 import * as THREE from 'three';
-import { sheetMarkers, sheetHomography, rectify, normalizeColors, scanImage } from './car-scan.js';
+import { sheetMarkers, sheetHomography, rectify, normalizeColors, scanImage, MARKER_MAP } from './car-scan.js';
 import { CAR_TEMPLATES } from './car-templates.js';
 import { paintCar } from './car-paint.js';
 import { makeDrawnCar, carEnvironment } from './car-model.js';
@@ -14,6 +16,22 @@ const DET_W = 960; // 찾기용 축소 영상 폭
 const AUTO_FRAMES = 4; // 표식이 4개 이만큼 이어서 보이고 흔들림이 작으면 저절로 찍음
 const PAGE_NAME = { ext: '① 겉모습', int: '② 앞·뒤와 실내' };
 export const DEFAULT_VEHICLE = 'taxi';
+const STEPS = ['겉모습', '앞·뒤와 실내', '나만의 차 확인'];
+const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+// 진행 단계 표시. states: 단계마다 'done' | 'current' | 'todo'
+export function stepperHtml(states) {
+  return '<ol class="stepper">' + STEPS.map((label, i) => {
+    const s = states[i];
+    return `<li class="st ${s}"${s === 'current' ? ' aria-current="step"' : ''}><span class="st-dot">${s === 'done' ? CHECK : i + 1}</span>` +
+      `<span class="st-label"><small>${i + 1}단계</small>${label}</span>${s === 'done' ? '<span class="sr-only">(완료)</span>' : ''}</li>`;
+  }).join('') + '</ol>';
+}
+// 표식(종이 위 자리) → 작은 도안 그림의 모서리 번호 (0 왼쪽 위, 1 오른쪽 위, 2 오른쪽 아래, 3 왼쪽 아래)
+function cornerOf(id) {
+  const c = MARKER_MAP.get(id).c[0];
+  const left = c[0] < 105, top = c[1] < 148.5;
+  return top ? (left ? 0 : 1) : (left ? 3 : 2);
+}
 
 export function createCarFlow({ getAR, onRun, onBack }) {
   let stream = null, timer = null, detector = null, busy = false;
@@ -24,7 +42,23 @@ export function createCarFlow({ getAR, onRun, onBack }) {
   const sctx = small.getContext('2d', { willReadFrequently: true });
   const video = $('scanVideo'), overlay = $('scanOverlay');
 
-  const guide = (msg, ok = false) => { $('scanGuide').textContent = msg; $('scanGuide').classList.toggle('ok', ok); };
+  // 안내 카드: title = 무엇을 할지(크게), sub = 어떻게(작게)
+  const guide = (title, sub = '', ok = false) => {
+    if ($('scanGuide').textContent !== title) $('scanGuide').textContent = title;
+    if ($('scanSub').textContent !== sub) $('scanSub').textContent = sub;
+    $('scanGuide').classList.toggle('ok', ok);
+  };
+  // 찾은 모서리 무늬를 작은 도안 그림·종이 자리에 표시
+  let shownCorners = '';
+  function showCorners(markers, ready) {
+    const on = new Set(markers.map((m) => cornerOf(m.id)));
+    const key = [...on].sort().join() + (ready ? '!' : '');
+    if (key === shownCorners) return;
+    shownCorners = key;
+    for (const el of document.querySelectorAll('#scanSheet .mk')) el.classList.toggle('on', on.has(+el.dataset.c));
+    $('scanSheet').classList.toggle('hunt', on.size < 4);
+    $('scanFrame').classList.toggle('ready', !!ready);
+  }
   const ensureDetector = () => {
     const AR = getAR();
     if (AR && !detector) detector = new AR.Detector({ dictionaryName: 'ARUCO_MIP_36h12' });
@@ -33,14 +67,18 @@ export function createCarFlow({ getAR, onRun, onBack }) {
   const captured = () => ['ext', 'int'].filter((p) => scan[p]);
   function showProgress() {
     const v = scan.vehicle && CAR_TEMPLATES[scan.vehicle];
-    $('scanSteps').innerHTML = ['ext', 'int'].map((p) => `<span class="step${scan[p] ? ' done' : ''}">${scan[p] ? '✓ ' : ''}${PAGE_NAME[p]}</span>`).join('') +
-      (v ? `<span class="step vehicle">${v.name}</span>` : '');
+    // 지금 할 단계: 아직 안 찍은 쪽 중 앞의 것 (순서는 상관없지만 ①부터 권함)
+    const next = ['ext', 'int'].find((p) => !scan[p]);
+    $('scanSteps').innerHTML = stepperHtml([...['ext', 'int'].map((p) => (scan[p] ? 'done' : p === next ? 'current' : 'todo')), 'todo']);
+    $('scanChip').hidden = !v;
+    $('scanChip').textContent = v ? `${v.name} 도안` : '';
     $('scanSkip').textContent = captured().length ? '이 장만으로 만들기' : '기본 차로 달리기';
   }
+  const HOW = '네 모서리의 검은 무늬 4개가\n모두 보이게 비춰 주세요';
   function idleGuide() {
     const have = captured();
-    if (!have.length) guide('도안 한 장을 비춰 주세요 · 네 모서리의 검은 무늬가 모두 보이게');
-    else guide(`좋아요! 이제 ${PAGE_NAME[have[0] === 'ext' ? 'int' : 'ext']} 장을 비춰 주세요`, true);
+    if (!have.length) guide('도안 한 장을 비춰 주세요', `${HOW}\n어느 장부터 해도 괜찮아요`);
+    else guide(`좋아요! 이제 ${PAGE_NAME[have[0] === 'ext' ? 'int' : 'ext']} 장을 비춰 주세요`, HOW, true);
   }
 
   // ── 스캔 화면 ──
@@ -49,14 +87,15 @@ export function createCarFlow({ getAR, onRun, onBack }) {
     $('start').hidden = true; $('preview').hidden = true; $('scan').hidden = false;
     $('scanShot').disabled = true;
     last = null; steady = 0; prevCenters = null; busy = false; lastKey = null;
+    shownCorners = null; showCorners([], false);
     showProgress(); clearOverlay();
-    if (!ensureDetector()) { guide('표식 인식 라이브러리를 불러오지 못했어요'); return; }
-    guide('카메라를 켜는 중이에요…');
+    if (!ensureDetector()) { guide('표식 인식 라이브러리를 불러오지 못했어요', '[기본 차로 달리기]로 계속할 수 있어요'); return; }
+    guide('카메라를 켜는 중이에요…', '잠깐만 기다려 주세요');
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } } });
     } catch (e) {
       stream = null;
-      guide('카메라를 열 수 없어요 · [사진 고르기]로 도안 사진을 골라 주세요');
+      guide('카메라를 열 수 없어요', '카메라 사용을 허용했는지 확인해 주세요\n[기본 차로 달리기]로 계속할 수도 있어요');
       return;
     }
     if ($('scan').hidden) { stopCamera(); return; } // 그사이 나감
@@ -91,14 +130,15 @@ export function createCarFlow({ getAR, onRun, onBack }) {
     $('scanShot').disabled = !ready;
     if (ready) last = { found, sc };
     const n = found.markers.length;
+    showCorners(found.markers, n === 4 && ready);
     if (!n) { steady = 0; idleGuide(); return; }
     const already = scan[found.page] && scan.vehicle === found.vehicle;
     const what = `${CAR_TEMPLATES[found.vehicle].name} ${PAGE_NAME[found.page]}`;
-    if (already) { steady = 0; guide(`${what}은 이미 찍었어요 · 다른 장을 비춰 주세요 (다시 찍으려면 [찍기])`, true); return; }
+    if (already) { steady = 0; guide(`${what}은 이미 찍었어요`, '다른 장을 비춰 주세요\n다시 찍으려면 [찍기]를 눌러요', true); return; }
     if (n === 4 && ready && moved < vw * 0.012) steady++; else steady = 0;
-    if (n === 4) guide(steady ? `${what} · 그대로 잠깐만 들고 있어요…` : `${what}을 찾았어요 · 흔들리지 않게 잠깐만요`, true);
-    else if (n === 3) guide(`${what} · 무늬 3개를 찾았어요 · 하나 더 보이게 하거나 [찍기]`, true);
-    else guide(`${what} · 네 모서리의 검은 무늬가 모두 보이게 비춰 주세요 (${n}/4)`);
+    if (n === 4) guide(`${what}을 찾았어요!`, steady ? '그대로 잠깐만 들고 있으면 저절로 찍혀요' : '흔들리지 않게 잠깐만 멈춰 주세요', true);
+    else if (n === 3) guide(`${what} · 무늬 3개를 찾았어요`, '하나 더 보이게 하거나 [찍기]를 눌러요', true);
+    else guide('네 모서리가 모두 보이게 비춰 주세요', `${what} · 무늬 ${n}개를 찾았어요 (4개 필요)\n종이를 조금 더 멀리 두고 비춰 보세요`);
     if (steady >= AUTO_FRAMES) capture();
   }
   function clearOverlay() { const ctx = overlay.getContext('2d'); ctx.clearRect(0, 0, overlay.width, overlay.height); }
@@ -121,7 +161,7 @@ export function createCarFlow({ getAR, onRun, onBack }) {
   async function capture() {
     if (busy || !stream || !last) return;
     busy = true; steady = 0;
-    guide('찍었어요! 그림을 펴는 중이에요…', true);
+    guide('찍었어요!', '그림을 반듯하게 펴는 중이에요…', true);
     $('scanShot').disabled = true;
     await new Promise((r) => setTimeout(r, 30)); // 안내가 먼저 보이게
     const vw = video.videoWidth, vh = video.videoHeight;
@@ -148,7 +188,7 @@ export function createCarFlow({ getAR, onRun, onBack }) {
   async function addPage(vehicle, page, cv) {
     if (scan.vehicle && scan.vehicle !== vehicle) {
       scan = { vehicle: null, ext: null, int: null };
-      guide(`${CAR_TEMPLATES[vehicle].name} 도안으로 새로 시작해요`, true);
+      guide(`${CAR_TEMPLATES[vehicle].name} 도안으로 새로 시작해요`, '', true);
     }
     scan.vehicle = vehicle; scan[page] = cv;
     showProgress();
@@ -157,31 +197,11 @@ export function createCarFlow({ getAR, onRun, onBack }) {
   }
   async function finish() {
     const vehicle = scan.vehicle || DEFAULT_VEHICLE;
-    guide('나만의 차를 만드는 중이에요…', true);
+    guide('나만의 차를 만드는 중이에요…', '잠깐만 기다려 주세요', true);
     painted = await paintCar(vehicle, { ext: scan.ext, int: scan.int });
     close();
     openPreview(!!(scan.ext || scan.int));
   }
-  // 사진 고르기 (카메라를 못 쓰는 기기, 또는 미리 찍어 둔 사진)
-  async function fromFile(file) {
-    if (!file || !ensureDetector()) return;
-    busy = true;
-    guide('사진에서 도안을 찾는 중이에요…', true);
-    try {
-      const bmp = await createImageBitmap(file);
-      const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
-      const ctx = cv.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(bmp, 0, 0, cv.width, cv.height);
-      const res = scanImage(detector, ctx.getImageData(0, 0, cv.width, cv.height), 4);
-      if (!res.ok) { guide(`사진에서 도안 무늬를 ${res.found.length}개만 찾았어요 · 네 모서리가 모두 보이게 다시 찍어 주세요`); return; }
-      await addPage(res.vehicle, res.page, toCanvas(res.image));
-    } catch (e) {
-      guide('사진을 읽지 못했어요 · 다른 사진을 골라 주세요');
-    } finally { busy = false; }
-  }
-
   // ── 미리보기 ──
   let pv = null;
   function openPreview(scanned) {
@@ -189,6 +209,7 @@ export function createCarFlow({ getAR, onRun, onBack }) {
     const v = CAR_TEMPLATES[painted.vehicle];
     $('previewTitle').textContent = scanned ? `나만의 ${v.name} 완성!` : `기본 ${v.name}로 달려요`;
     $('goMsg').textContent = '';
+    $('previewSteps').innerHTML = stepperHtml([scan.ext ? 'done' : 'todo', scan.int ? 'done' : 'todo', 'current']);
     for (const p of ['ext', 'int']) {
       const c = $(p === 'ext' ? 'previewFlat' : 'previewFlat2');
       c.width = 420; c.height = 594;
@@ -251,8 +272,6 @@ export function createCarFlow({ getAR, onRun, onBack }) {
 
   // ── 버튼 ──
   $('scanShot').onclick = () => capture();
-  $('scanPhoto').onclick = () => $('scanFile').click();
-  $('scanFile').onchange = (e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; fromFile(f); };
   $('scanSkip').onclick = async () => { if (busy) return; busy = true; try { await finish(); } finally { busy = false; } };
   $('scanBack').onclick = () => { close(); $('start').hidden = false; onBack(); };
   $('btnRescan').onclick = () => { closePreview(); open(); };
