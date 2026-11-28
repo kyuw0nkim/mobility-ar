@@ -6,6 +6,19 @@
 import * as THREE from 'three';
 import { CAR_TEMPLATES, PAPER } from './car-templates.js';
 import { ROOF_PATCH } from './car-paint.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
+// 유리·도장 반사용 주변 환경 (방 모양 조명을 한 번 미리 계산해 둔 텍스처). 렌더러마다 한 번만
+const envCache = new WeakMap();
+export function carEnvironment(renderer) {
+  if (!envCache.has(renderer)) {
+    const pm = new THREE.PMREMGenerator(renderer);
+    const env = pm.fromScene(new RoomEnvironment(), 0.04).texture;
+    pm.dispose();
+    envCache.set(renderer, env);
+  }
+  return envCache.get(renderer);
+}
 
 const uvOf = (X, Y) => [X / PAPER.w, 1 - Y / PAPER.h];
 
@@ -136,13 +149,19 @@ function backXAt(fr, z) {
   return Number.isFinite(best) ? best : fr.xmin;
 }
 
-// painted: car-paint.js paintCar() 결과 {vehicle, ext, int}
-export function makeDrawnCar(dims, painted, { lite = false } = {}) {
+// painted: car-paint.js paintCar() 결과 {vehicle, ext, int, extMat, intMat}
+// envMap: carEnvironment(renderer). 있으면 창문이 주변을 비추는 매끈한 유리(가벼운 모드는 칠한 그라데이션만)
+export function makeDrawnCar(dims, painted, { lite = false, envMap = null } = {}) {
   const fr = carFrame(painted.vehicle, dims.length);
   const { W, H, zBelt, zBot } = fr;
   const Mat = lite ? THREE.MeshLambertMaterial : THREE.MeshStandardMaterial;
   const extra = lite ? {} : { roughness: 0.45, metalness: 0.05 };
   const texExt = canvasTexture(painted.ext), texInt = canvasTexture(painted.int);
+  // 몸체 재질: 거칠기·금속성 지도(유리 자리만 매끈하게) + 주변 반사
+  const glassy = !lite && painted.extMat;
+  const matMap = (cv) => { const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.NoColorSpace; return t; };
+  const mapExt = glassy ? matMap(painted.extMat) : null, mapInt = glassy ? matMap(painted.intMat) : null;
+  const bodyOpts = (mm) => (glassy ? { roughness: 1, metalness: 1, roughnessMap: mm, metalnessMap: mm, envMap, envMapIntensity: envMap ? 0.4 : 0 } : extra);
   const g = new THREE.Group();
 
   // 벨트 선으로 위·아래 나누기 (세계 좌표 평면, 그리기 직전에 차 위치로 갱신)
@@ -151,9 +170,9 @@ export function makeDrawnCar(dims, painted, { lite = false } = {}) {
   const updatePlanes = (m) => { lowerPlane.copy(lowerLocal).applyMatrix4(m); upperPlane.copy(upperLocal).applyMatrix4(m); };
 
   const geo = bodyGeometry(fr);
-  const lowerMats = [new Mat({ map: texExt, clippingPlanes: [lowerPlane], ...extra }), new Mat({ map: texInt, clippingPlanes: [lowerPlane], ...extra })];
+  const lowerMats = [new Mat({ map: texExt, clippingPlanes: [lowerPlane], ...bodyOpts(mapExt) }), new Mat({ map: texInt, clippingPlanes: [lowerPlane], ...bodyOpts(mapInt) })];
   const innerMat = new Mat({ color: 0xc9d0d8, side: THREE.BackSide, clippingPlanes: [lowerPlane], ...extra });
-  const lidMats = [new Mat({ map: texExt, clippingPlanes: [upperPlane], transparent: false, ...extra }), new Mat({ map: texInt, clippingPlanes: [upperPlane], transparent: false, ...extra })];
+  const lidMats = [new Mat({ map: texExt, clippingPlanes: [upperPlane], transparent: false, ...bodyOpts(mapExt) }), new Mat({ map: texInt, clippingPlanes: [upperPlane], transparent: false, ...bodyOpts(mapInt) })];
   const lower = new THREE.Mesh(geo, lowerMats), inner = new THREE.Mesh(geo, innerMat), lid = new THREE.Mesh(geo, lidMats);
   for (const m of [lower, inner, lid]) m.onBeforeRender = () => updatePlanes(g.matrixWorld);
   lid.renderOrder = 2;

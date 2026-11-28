@@ -1,14 +1,18 @@
 // 차 도안 PDF(6쪽: PBV·로보택시·배송 트럭 × ①겉모습·②앞뒤와 실내)에서 앱이 쓰는 치수를 뽑는다
 //  → src/car-templates.js (종이 mm 좌표: 표식, 실루엣, 창문·지붕 띠, 바퀴, 이름 칸, 앞·뒤 모습, 지붕 색 칸, 실내 칸)
 //  → assets/car-<차>-<쪽>.png (빈 도안 그림, 4px/mm: 스캔하지 않은 쪽의 기본 그림)
-// 사용: node tools/extract-car-templates.mjs ../RAIM-AR-차도안.pdf   (pdftocairo·pdftotext·pdftoppm 필요)
-// 도안 PDF를 바꾸면 이 명령을 다시 실행하고 npm run publish-site
+// 사용: node tools/extract-car-templates.mjs [원본 PDF] [인쇄용 PDF]   (pdftocairo·pdftotext·pdftoppm 필요)
+//  치수는 원본(sheet-src/차도안-원본.pdf)에서 읽고 바꾼 것(car-sheet-edits.mjs: 이름 칸)을 반영,
+//  빈 도안 그림은 인쇄용(../RAIM-AR-차도안.pdf, edit-car-sheet.mjs가 만듦)에서
+// 도안을 바꾸면: node tools/edit-car-sheet.mjs && node tools/extract-car-templates.mjs && npm run publish-site
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdtempSync, copyFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PDF = process.argv[2] || '../RAIM-AR-차도안.pdf';
+import { NAME_BOX } from './car-sheet-edits.mjs';
+const PDF = process.argv[2] || 'sheet-src/차도안-원본.pdf';
+const PRINT_PDF = process.argv[3] || '../RAIM-AR-차도안.pdf';
 const tmp = mkdtempSync(join(tmpdir(), 'cartpl-'));
 const PT = 25.4 / 72;
 const r2 = (v) => Math.round(v * 100) / 100;
@@ -116,7 +120,7 @@ const markersFor = (els, base) => {
 PAGES.forEach((pg, idx) => {
   const n = idx + 1;
   execFileSync('pdftocairo', ['-svg', '-f', String(n), '-l', String(n), PDF, join(tmp, `p${n}.svg`)]);
-  execFileSync('pdftoppm', ['-r', '101.6', '-f', String(n), '-l', String(n), '-png', '-singlefile', PDF, join(tmp, `p${n}`)]);
+  execFileSync('pdftoppm', ['-r', '101.6', '-f', String(n), '-l', String(n), '-png', '-singlefile', PRINT_PDF, join(tmp, `p${n}`)]);
   copyFileSync(join(tmp, `p${n}.png`), `assets/car-${pg.vehicle}-${pg.page}.png`);
   const els = parsePage(readFileSync(join(tmp, `p${n}.svg`), 'utf8'));
   const txt = lines(bboxHtml, n);
@@ -124,7 +128,8 @@ PAGES.forEach((pg, idx) => {
   const spec = { markers: markersFor(els, pg.base) };
   if (pg.page === 'ext') {
     const nameBox = els.find((e) => e.stroke && same(e.stroke, ORANGE) && e.dash && e.bb[2] - e.bb[0] > 120);
-    spec.nameBox = R(nameBox.bb);
+    const half = (nameBox.bb[2] - nameBox.bb[0] - 150) / 2; // 테두리 두께 절반 (원본 칸 150mm)
+    spec.nameBox = R([NAME_BOX.x0 - half, nameBox.bb[1], NAME_BOX.x1 + half, nameBox.bb[3]]);
     spec.namePlaceholder = T(/크고 진하게/)[0];
     const outlines = els.filter((e) => e.stroke && same(e.stroke, INK) && !e.fill && e.sw > 0.6 && e.bb[2] - e.bb[0] > 100).sort((a, b) => a.bb[1] - b.bb[1]);
     spec.sides = outlines.map((o, k) => {

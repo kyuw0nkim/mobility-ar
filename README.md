@@ -55,13 +55,18 @@ WebXR·ARCore 없이 일반 카메라(getUserMedia)로 동작하므로 갤럭시
 3D 차는 이렇게 만들어요:
 - 몸체 = 옆모습 실루엣을 차 폭만큼 밀어 낸 모양(가장자리 둥글게). 폭은 앞모습의 가로·세로 비율로 정해요.
 - 옆면 = 오른쪽/왼쪽 옆면 그림, 앞·뒤 면 = 앞모습/뒷모습 그림, 지붕 윗면 = 고른 지붕 색(✓ 없으면 PBV 남색, 로보택시 노랑, 배송 트럭 초록 앞칸).
-- 창문(칠하지 않는 곳)은 어두운 유리색으로, '여기에 자유롭게 그려요'·'짐칸 문' 같은 연한 안내 글씨는 주변 색으로 지워요.
+- 창문(칠하지 않는 곳)은 유리처럼: 위가 밝은 그라데이션과 비스듬한 빛 줄기를 칠하고, 창문 자리만 매끈하게(거칠기 낮게) 해서
+  미리 계산해 둔 주변 환경(방 조명)을 비춰요. 환경은 처음에 한 번만 만들고 그릴 때는 텍스처를 몇 번 더 읽는 정도라 부담이 거의 없어요.
+  진짜 투명 유리(빛 굴절·뒤가 비침)는 화면을 한 번 더 그려야 해서 태블릿에 무거워 쓰지 않았어요. 가벼운 모드에서는 반사 없이 칠한 그라데이션만.
+- '여기에 자유롭게 그려요'·'짐칸 문' 같은 연한 안내 글씨는 주변 색으로 지워요.
 - '내 차 이름' 칸에 쓴 글씨만 뽑아 양옆의 '차 이름이 들어갈 자리'에 넣어요(연한 '크고 진하게 써요'는 빼요).
 - 바퀴·로보택시 지붕 센서는 따로 붙인 3D, 멈추면 뒤쪽 브레이크등이 빨갛게 켜져요.
 - 찍을 때 종이 흰색·무늬 검정을 기준으로 조명 색을 보정해요(누런 조명·비스듬히 찍은 시험 사진에서 칠한 색이 그대로 나옴). 그림은 기기 안에서만 처리하고 어디에도 올리지 않아요.
 
-도안을 고치면: `cd dev && node tools/extract-car-templates.mjs ../RAIM-AR-차도안.pdf` (pdftocairo·pdftotext·pdftoppm 필요)
-→ `src/car-templates.js`(치수)와 `assets/car-*.png`(빈 도안 그림)가 다시 만들어져요 → `npm run publish-site`.
+도안 파일: 받은 원본은 `dev/sheet-src/차도안-원본.pdf`, 인쇄용 `RAIM-AR-차도안.pdf`는 원본에 바꾼 것만 덮어 그린 것이에요
+(`dev/tools/car-sheet-edits.mjs`: 제목 '나의 자율주행 자동차 디자인 ①/②…'으로 통일, '내 차 이름' 칸 좌우 줄임 150 → 120mm).
+고치려면 `cd dev && node tools/edit-car-sheet.mjs && node tools/extract-car-templates.mjs && npm run publish-site`
+(Noto Sans CJK KR 글꼴, pdftocairo·pdftotext·pdftoppm 필요). → 인쇄용 PDF, `src/car-templates.js`(치수), `assets/car-*.png`(빈 도안 그림)가 다시 만들어져요.
 칸의 색(남색 지붕 띠, 하늘색 창문, 회색 아래 띠, 점선 이름 칸 등)과 배치로 자리를 찾으니, 같은 디자인 규칙을 지키면 모양을 바꿔도 돼요.
 
 ## 1. 태블릿에서 여는 방법 (HTTPS 필요)
@@ -285,7 +290,7 @@ cd dev
 npm install
 npm run build                  # = node build.mjs → dist/index.html(AR), dist/marker.html(마커) 생성 (시험용)
 npm run publish-site           # = node build.mjs --publish → 위 결과를 저장소 맨 위 index.html·marker.html에도 복사 (사이트 반영)
-node tools/extract-car-templates.mjs ../RAIM-AR-차도안.pdf   # 차 도안 PDF → 치수(src/car-templates.js)·빈 도안 그림(assets/car-*.png)
+node tools/edit-car-sheet.mjs && node tools/extract-car-templates.mjs   # 차 도안: 원본 → 인쇄용 PDF(제목·이름 칸) → 치수(src/car-templates.js)·빈 도안 그림(assets/car-*.png)
 npm test                       # 단위·시뮬레이션 시험 묶음 (테스트 시트 SVG를 먼저 만들고 차례로 실행)
 node tools/make-sheet.mjs      # 테스트 시트 SVG 생성 (rsvg-convert로 PDF 변환)
 node tools/make-markers.mjs out && node tools/svg-to-pdf.cjs out 마커.pdf          # 도로 마커 18개(8cm, ROAD_MM로 변경) + 바리케이드 마커 PDF

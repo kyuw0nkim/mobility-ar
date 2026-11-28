@@ -14,7 +14,7 @@ import {
 } from './logic.js';
 import { loadConfig, storeConfig, loadShared, downloadShared, sharedLabel } from './store.js';
 import { makeCar, makeBarricadeVis, disposeObject, clearGroup, coloredLoop } from './scene.js';
-import { makeDrawnCar } from './car-model.js';
+import { makeDrawnCar, carEnvironment } from './car-model.js';
 import { paintCar } from './car-paint.js';
 import { createCarFlow, DEFAULT_VEHICLE } from './car-flow.js';
 import { isSheetMap } from './config.js';
@@ -124,7 +124,7 @@ let peek = 0; // 지붕 열림 0~1 (부드럽게 따라감)
 function makeArCar() {
   const painted = (carFlow && carFlow.painted) || defaultPainted;
   let car;
-  if (painted) car = makeDrawnCar(carDims(), painted, { lite: LITE });
+  if (painted) car = makeDrawnCar(carDims(), painted, { lite: LITE, envMap: LITE ? null : carEnvironment(renderer) });
   else { // 기본 그림을 아직 못 불러왔을 때만: 예전 상자 차
     car = makeCar(carDims());
     const bm = car.userData.brakeMat;

@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { sheetMarkers, sheetHomography, rectify, normalizeColors, scanImage } from './car-scan.js';
 import { CAR_TEMPLATES } from './car-templates.js';
 import { paintCar } from './car-paint.js';
-import { makeDrawnCar } from './car-model.js';
+import { makeDrawnCar, carEnvironment } from './car-model.js';
 import { disposeObject } from './scene.js';
 
 const $ = (id) => document.getElementById(id);
@@ -212,7 +212,7 @@ export function createCarFlow({ getAR, onRun, onBack }) {
     const sun = new THREE.DirectionalLight(0xffffff, 1.6); sun.position.set(-2, -3, 6); scene.add(sun);
     const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
     camera.up.set(0, 0, 1);
-    const car = makeDrawnCar({ length: 10 }, painted);
+    const car = makeDrawnCar({ length: 10 }, painted, { envMap: carEnvironment(renderer) });
     scene.add(car);
     const H = car.userData.shape.H;
     const disc = new THREE.Mesh(new THREE.CircleGeometry(8, 48), new THREE.MeshBasicMaterial({ color: 0x00448b, transparent: true, opacity: 0.08 }));

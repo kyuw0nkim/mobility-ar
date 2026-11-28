@@ -54,7 +54,8 @@ export function disposeObject(obj) {
   const seen = new Set();
   obj.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    for (const r of [o.geometry, ...mats, ...mats.map((m) => m && m.map)]) {
+    // 지도 텍스처도 정리 (환경 반사 envMap은 여러 차가 같이 쓰니 빼고)
+    for (const r of [o.geometry, ...mats, ...mats.map((m) => m && m.map), ...mats.map((m) => m && m.roughnessMap), ...mats.map((m) => m && m.metalnessMap)]) {
       if (r && r.dispose && !seen.has(r)) { seen.add(r); r.dispose(); }
     }
   });

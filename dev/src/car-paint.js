@@ -7,6 +7,31 @@ import { CAR_TEMPLATES, PAPER } from './car-templates.js';
 
 export const SCALE = 4; // px/mm (스캔·빈 도안 모두)
 export const GLASS = '#1f3349';
+// 재질 지도 (three.js: 초록 = 거칠기, 파랑 = 금속성). 차체는 반들한 도장, 유리는 매끈하게 비춤
+const MAT_BODY = 'rgb(0,115,13)', MAT_GLASS = 'rgb(0,18,150)';
+// 유리 칠: 위가 밝고 아래가 어두운 그라데이션 + 비스듬한 빛 줄기 (가벼운 모드처럼 반사가 없어도 유리처럼 보이게)
+function paintGlass(ctx, path, rects) {
+  if (!rects.length) return;
+  const y0 = Math.min(...rects.map((r) => r[1])) * K, y1 = Math.max(...rects.map((r) => r[3])) * K;
+  const x0 = Math.min(...rects.map((r) => r[0])) * K, x1 = Math.max(...rects.map((r) => r[2])) * K;
+  const g = ctx.createLinearGradient(0, y0, 0, y1);
+  g.addColorStop(0, '#3d5f82'); g.addColorStop(0.45, '#22394f'); g.addColorStop(1, '#152434');
+  ctx.save();
+  ctx.clip(path, 'evenodd');
+  ctx.fillStyle = g;
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  const h = y1 - y0;
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  for (let x = x0 + h * 0.6; x < x1; x += h * 3.2) {
+    ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x + h * 0.45, y0); ctx.lineTo(x - h * 0.35, y1); ctx.lineTo(x - h * 0.8, y1); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+function matCanvas() {
+  const cv = newCanvas(), c = cv.getContext('2d');
+  c.fillStyle = MAT_BODY; c.fillRect(0, 0, cv.width, cv.height);
+  return cv;
+}
 const K = SCALE;
 
 export function blankUrl(vehicle, page) { return `assets/car-${vehicle}-${page}.png`; }
@@ -119,6 +144,7 @@ export async function paintCar(vehicle, pages = {}) {
 
   // ① 겉모습: 양옆
   const ext = copyCanvas(extSrc), ec = ext.getContext('2d');
+  const extMat = matCanvas(), em = extMat.getContext('2d');
   for (const s of t.ext.sides) {
     const sil = silPath(s.silhouette);
     for (const h of s.hint) eraseHint(ec, h);
@@ -128,9 +154,9 @@ export async function paintCar(vehicle, pages = {}) {
     const glass = new Path2D();
     for (const r of s.window) glass.rect(r[0] * K, r[1] * K, (r[2] - r[0]) * K, (r[3] - r[1]) * K);
     for (const r of s.pillar) glass.rect(r[0] * K, r[1] * K, (r[2] - r[0]) * K, (r[3] - r[1]) * K);
-    ec.fillStyle = GLASS;
-    ec.fill(glass, 'evenodd');
+    paintGlass(ec, glass, s.window);
     ec.restore();
+    em.save(); em.clip(sil); em.fillStyle = MAT_GLASS; em.fill(glass, 'evenodd'); em.restore();
     // 이름 자리: 테두리·안내 글씨를 지우고(주변 색) 이름을 넣음
     const [x0, y0, x1, y1] = px(s.nameSlot, 0.9);
     const bg = median(ec.getImageData(x0, y0, x1 - x0, y1 - y0).data, (r, g, b) => chroma(r, g, b) > 60 && r > g && g > b && lum(r, g, b) > 120);
@@ -147,6 +173,7 @@ export async function paintCar(vehicle, pages = {}) {
   ec.fillRect(ROOF_PATCH[0] * K, ROOF_PATCH[1] * K, (ROOF_PATCH[2] - ROOF_PATCH[0]) * K, (ROOF_PATCH[3] - ROOF_PATCH[1]) * K);
   // ② 앞·뒤: 지붕 띠·창문
   const int = copyCanvas(intSrc), ic = int.getContext('2d');
+  const intMat = matCanvas(), im2 = intMat.getContext('2d');
   for (const h of t.int.hints || []) eraseHint(ic, h);
   for (const v of t.int.views) {
     ic.save();
@@ -156,9 +183,11 @@ export async function paintCar(vehicle, pages = {}) {
     ic.clip(clip);
     ic.fillStyle = roof;
     for (const q of v.roof) ic.fillRect(q[0] * K, q[1] * K, (q[2] - q[0]) * K, (q[3] - q[1]) * K);
-    ic.fillStyle = GLASS;
-    for (const q of v.window) ic.fillRect(q[0] * K, q[1] * K, (q[2] - q[0]) * K, (q[3] - q[1]) * K);
+    const glass = new Path2D();
+    for (const q of v.window) glass.rect(q[0] * K, q[1] * K, (q[2] - q[0]) * K, (q[3] - q[1]) * K);
+    paintGlass(ic, glass, v.window);
     ic.restore();
+    im2.save(); im2.clip(clip); im2.fillStyle = MAT_GLASS; im2.fill(glass); im2.restore();
   }
-  return { vehicle, ext, int, roof, roofPicked: !!pick.color, roofIndex: pick.index, name: !!name, nameCanvas: name };
+  return { vehicle, ext, int, extMat, intMat, roof, roofPicked: !!pick.color, roofIndex: pick.index, name: !!name, nameCanvas: name };
 }

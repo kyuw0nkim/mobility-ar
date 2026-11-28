@@ -121,7 +121,7 @@ ok(info.roofPicked && info.roofColor === '#ff9fb2', `✓한 지붕 색 ${info.ro
 ok(info.name && info.nameDark > 200, `이름 글씨를 옆면 이름 자리에 넣음 (어두운 점 ${info.nameDark})`);
 const near = (a, b, t) => Math.hypot(...a.map((v, i) => v - b[i])) < t;
 info.red.forEach((c, i) => ok(near(c, RED, 95), `${i ? '왼쪽' : '오른쪽'} 옆면 빨강 칠 → rgb(${c})`));
-ok(near(info.glass, [31, 51, 73], 30), `창문 → 유리색 rgb(${info.glass})`);
+ok(info.glass[2] > info.glass[0] + 15 && info.glass[0] + info.glass[1] + info.glass[2] < 330, `창문 → 어두운 유리색 rgb(${info.glass})`);
 ok(near(info.roof, [255, 159, 178], 10), `지붕 색 조각 rgb(${info.roof})`);
 ok(near(info.blue, BLUE, 95), `실내 파랑 칠 → rgb(${info.blue})`);
 ok(/로보택시/.test(await page.textContent('#previewTitle')), `미리보기 제목: ${await page.textContent('#previewTitle')}`);
@@ -133,6 +133,8 @@ const pvOpen = await page.evaluate(() => window.__raimAR.carFlow().previewOpen);
 ok(pvOpen > 0.9, `미리보기 [안쪽 보기] → 지붕 열림 ${pvOpen.toFixed(2)}`);
 await page.screenshot({ path: `${out}/car-4-preview-inside.png` });
 
+const glassMat = await page.evaluate(() => { const p = window.__raimAR.carFlow().painted; return !!(p.extMat && p.intMat); });
+ok(glassMat, '유리 재질 지도(창문만 매끈하게) 있음');
 console.log('[이 차로 달리기 → AR]');
 await page.click('#btnGo');
 await page.waitForFunction(() => document.getElementById('start').hidden && document.getElementById('preview').hidden && !document.getElementById('ui').hidden, null, { timeout: 15000 });
