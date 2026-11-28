@@ -9,7 +9,7 @@ const page = await browser.newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.goto('http://localhost:8765/index.html');
+await page.goto('http://localhost:8765/marker.html');
 await page.click('#btnCamera');
 const t0 = Date.now();
 const shots = { 1.5: 'e2e-a', 5.5: 'e2e-b', 7.5: 'e2e-c', 11: 'e2e-d' };

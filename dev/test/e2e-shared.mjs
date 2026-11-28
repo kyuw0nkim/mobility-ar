@@ -22,7 +22,7 @@ const ok = (c, msg) => console.log(c ? '  통과' : '  실패', msg);
 
 // 0) 파일이 없을 때
 rmSync(file, { force: true });
-await page.goto('http://localhost:8765/index.html');
+await page.goto('http://localhost:8765/marker.html');
 await page.evaluate(() => localStorage.clear());
 await page.reload(); await page.waitForTimeout(500);
 console.log('0) diorama.json 없음');
@@ -63,7 +63,7 @@ ok(out.kind === 'raim-diorama' && out.roadMarkers.length === 3 && !('tracking' i
 // 5) AR 버전도 같은 설정
 const ar = await ctx.newPage();
 ar.on('pageerror', (e) => errs.push('AR: ' + e.message));
-await ar.goto('http://localhost:8765/ar.html?lite=0'); await ar.waitForTimeout(600);
+await ar.goto('http://localhost:8765/index.html?lite=0'); await ar.waitForTimeout(600);
 console.log('5) AR 버전');
 const as = await ar.evaluate(() => window.__raimAR.state);
 ok(as.roadMarkers.length === 3 && as.roadMarkers[0].x === 5, 'AR 버전도 같은 지도');

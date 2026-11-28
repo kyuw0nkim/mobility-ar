@@ -12,7 +12,7 @@ const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
   await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(`window.__mockFlip = false;\n${mock}`);
-await page.goto('http://localhost:8765/ar.html?lite=0');
+await page.goto('http://localhost:8765/index.html?lite=0');
 await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-aim', '0'); }); // 손가락 탭 흉내 (조준점 끔)
 await page.reload();
 await page.waitForFunction(() => !document.getElementById('btnStart').disabled, null, { timeout: 5000 });

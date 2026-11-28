@@ -13,7 +13,7 @@ const page = await browser.newPage({ viewport: { width: 412, height: 860 } });
   await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
 const errs = []; page.on('pageerror', (e) => errs.push(e.message));
 await page.addInitScript(`window.__mockScene = 'bar'; window.__mockHold = ${HOLD};\n${mock}`);
-await page.goto('http://localhost:8765/ar.html?lite=0');
+await page.goto('http://localhost:8765/index.html?lite=0');
 // 빨리 바리케이드에 닿도록 속도 4배 (A4 시트 기본 경로)
 const COLOR = !!process.env.COLOR, EDGE = !!process.env.EDGE;
 console.log((COLOR ? '[색으로만 찾기 — 바리케이드 마커 무시]' : '[마커 + 색]') + (EDGE ? ' [마커는 한 변에만]' : ''));

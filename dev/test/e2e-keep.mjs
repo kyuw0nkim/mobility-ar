@@ -31,7 +31,7 @@ async function pressAndWatch(page, key, label) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
-  await page.goto('http://localhost:8765/index.html');
+  await page.goto('http://localhost:8765/marker.html');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await page.click('#btnCamera');
@@ -58,7 +58,7 @@ async function pressAndWatch(page, key, label) {
   await page.addInitScript("window.__raimAutoAdmin = '4300';"); // 관리자 모드로 시작 (조정 버튼을 쓰는 시험)
   const errs = []; page.on('pageerror', (e) => errs.push(e.message));
   await page.addInitScript(`window.__mockScene = 'bar'; window.__mockHold = 3;\n${mock}`);
-  await page.goto('http://localhost:8765/ar.html?lite=0');
+  await page.goto('http://localhost:8765/index.html?lite=0');
   await page.evaluate(() => { localStorage.clear(); localStorage.setItem('raim-ar-marker-config-v1', JSON.stringify({ drive: { speedScale: 4 }, barricade: { width: 10, height: 5.5, colorHeight: null, colorPanelHeight: null, colorSizeRange: [0.25, 4] } })); });
   await page.reload();
   await page.waitForFunction(() => !document.getElementById('btnStart').disabled);

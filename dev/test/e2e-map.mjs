@@ -5,7 +5,7 @@ const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome
   defaultViewport: { width: 1280, height: 800 } });
 const page = await browser.newPage();
 const errs = []; page.on('pageerror', (e) => errs.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });
-await page.goto('http://localhost:8765/index.html');
+await page.goto('http://localhost:8765/marker.html');
 await page.evaluate(() => localStorage.clear());
 await page.reload();
 await page.click('#btnCamera');

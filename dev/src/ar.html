@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#00448B">
-<title>자율주행 AR</title>
+<title>도로 위의 상상</title>
 <link rel="icon" href="data:,">
 <link rel="preload" href="assets/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin>
 <style>
@@ -30,6 +30,44 @@
   #aim::before { left:31px; top:0; width:2px; height:64px; }
   #aim::after { top:31px; left:0; height:2px; width:64px; }
   #aim i { position:absolute; left:24px; top:24px; width:16px; height:16px; border:2px solid #ff00aa; border-radius:50%; background:rgba(255,255,255,.15); }
+  /* 시작 화면 제목 */
+  .start-title { font-size: clamp(2.6rem, 7vw, 4.6rem); font-weight: 850; letter-spacing: -0.04em; color: var(--c-301); margin: 0 0 18px; text-align: center;
+    text-shadow: 0 2px 24px rgba(255,255,255,.9); }
+  body.admin .start-title { font-size: 2.4rem; margin-bottom: 4px; }
+  /* 도안 스캔 */
+  .scan-screen { position: fixed; inset: 0; background: #111; z-index: 5; }
+  .scan-screen video, .scan-screen #scanOverlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .scan-frame { position: absolute; left: 50%; top: calc(50% - 8px); height: min(calc(100vh - 230px), 120vw); aspect-ratio: 210 / 297; transform: translate(-50%, -50%);
+    border: 3px dashed rgba(255,255,255,.75); border-radius: 12px; pointer-events: none; }
+  .scan-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; gap: 12px; align-items: center; }
+  .scan-guide { flex: 1; padding: 12px 20px; border-radius: 999px; font-size: 1.12rem; font-weight: 650; color: var(--c-301); text-align: center; }
+  .scan-guide.ok { color: #0f8f96; }
+  .scan-steps { position: absolute; top: 76px; left: 0; right: 0; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; pointer-events: none; }
+  .scan-steps .step { padding: 6px 14px; border-radius: 999px; background: rgba(255,255,255,.82); color: var(--fg-2); font-weight: 650; font-size: .95rem; }
+  .scan-steps .step.done { background: #1fbdc6; color: #fff; }
+  .scan-steps .step.vehicle { background: var(--c-301); color: #fff; }
+  .scan-bottom { position: absolute; left: 16px; right: 16px; bottom: 18px; display: flex; gap: 14px; justify-content: center; align-items: center; flex-wrap: wrap; }
+  .scan-shot { min-height: 84px; min-width: 200px; border-radius: 999px; font-size: 1.6rem; font-weight: 750; box-shadow: 0 0 0 8px rgba(255,255,255,.35); }
+  /* 미리보기 */
+  .preview-screen { position: fixed; inset: 0; display: flex; flex-direction: column; padding: 16px 24px; gap: 12px; z-index: 5; overflow: auto; }
+  .preview-title { font-size: 1.7rem; text-align: center; }
+  .preview-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 18px; }
+  .preview-3d { min-height: 300px; border-radius: 20px; overflow: hidden; }
+  .preview-3d canvas { width: 100%; height: 100%; display: block; }
+  .preview-side { display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+  .preview-flat { padding: 10px; border-radius: 14px; text-align: center; }
+  .preview-flat .flats { display: flex; gap: 8px; justify-content: center; }
+  .preview-flat canvas { width: calc(50% - 4px); max-height: 30vh; object-fit: contain; height: auto; border-radius: 6px; display: block; background: #fff; }
+  .preview-flat p { margin: 6px 0 0; font-size: .9rem; }
+  .preview-hint { margin: 0; font-size: 1.05rem; line-height: 1.55; color: var(--fg-2); }
+  .preview-buttons { display: flex; gap: 10px; }
+  .preview-buttons .btn { flex: 1; }
+  #btnGo { width: 100%; }
+  @media (orientation: portrait), (max-width: 760px) {
+    .preview-main { grid-template-columns: minmax(0, 1fr); }
+    .preview-3d { min-height: 46vh; }
+    .preview-screen { padding: 12px 16px; }
+  }
   @media (orientation: portrait) and (max-width: 599px) {
     #bottom { left:8px; right:8px; bottom:8px; gap:6px; }
     body.admin #bottom { grid-template-columns:minmax(0, 1fr); }
@@ -54,6 +92,7 @@
   <main class="start-main">
     <!-- 관람객: 버튼 하나. 누르면 바로 AR 시작 -->
     <section class="start-solo">
+      <h1 class="start-title">도로 위의 상상</h1>
       <button class="btn primary start-btn" id="btnStart" disabled>시작하기</button>
       <p class="start-msg" id="startMsg" aria-live="polite"></p>
     </section>
@@ -70,13 +109,55 @@
         <button class="btn ghost small" id="btnShared">전시 설정 다시 불러오기</button>
         <button class="btn ghost small" id="btnLite" title="보급형 태블릿용: 해상도·인식 횟수를 줄이고 가림 처리를 끔">가벼운 모드</button>
         <button class="btn ghost small" id="btnLiteDepth" hidden title="가벼운 모드에서도 깊이 인식으로 건물 뒤의 차를 가림 (부하가 늘어요)">가벼운 모드 가림</button>
-        <a class="btn ghost small" href="index.html">마커 버전 열기</a>
+        <a class="btn ghost small" href="marker.html">마커 버전 열기</a>
+        <a class="btn ghost small" href="RAIM-AR-차도안.pdf" download>차 도안 PDF</a>
       </div>
       <p class="muted" style="margin:0;font-size:.92rem;line-height:1.55">AR을 시작하면 화면 오른쪽 아래에 관리자 버튼(지도 만들기·경로 기록·차 크기·속도·도로 높이)이 나와요.
         여러 태블릿이 같은 지도·경로를 쓰려면 [전시 설정 내보내기]로 받은 diorama.json을 사이트에 올려요.</p>
     </section>
   </main>
   <p class="version-tag" id="versionTag"></p>
+</div>
+
+<!-- ───── 도안 스캔 (카메라) ───── -->
+<div id="scan" class="scan-screen" hidden lang="ko">
+  <video id="scanVideo" playsinline muted autoplay></video>
+  <canvas id="scanOverlay"></canvas>
+  <div class="scan-frame" aria-hidden="true"></div>
+  <header class="scan-top">
+    <button class="btn ghost small" id="scanBack">처음으로</button>
+    <div class="scan-guide glass solid" id="scanGuide" aria-live="polite">-</div>
+  </header>
+  <div class="scan-steps" id="scanSteps"></div>
+  <div class="scan-bottom">
+    <button class="btn ghost" id="scanPhoto">사진 고르기</button>
+    <button class="btn primary scan-shot" id="scanShot" disabled>찍기</button>
+    <button class="btn ghost" id="scanSkip">기본 차로 달리기</button>
+  </div>
+  <input type="file" id="scanFile" accept="image/*" hidden>
+</div>
+
+<!-- ───── 나만의 차 미리보기 ───── -->
+<div id="preview" class="preview-screen" hidden lang="ko">
+  <div class="room-bg"></div>
+  <header class="topbar">
+    <button class="btn ghost small" id="previewBack">처음으로</button>
+    <h2 id="previewTitle" class="preview-title">나만의 차가 완성됐어요!</h2>
+    <span></span>
+  </header>
+  <main class="preview-main">
+    <div class="preview-3d glass"><canvas id="previewCanvas"></canvas></div>
+    <aside class="preview-side">
+      <div id="previewFlatWrap" class="preview-flat glass"><div class="flats"><canvas id="previewFlat"></canvas><canvas id="previewFlat2"></canvas></div><p class="muted">찍은 도안</p></div>
+      <p class="preview-hint">AR에서 태블릿을 차에 <b>가까이</b> 가져가면 지붕이 사라지고 차 안이 보여요.</p>
+      <div class="preview-buttons">
+        <button class="btn ghost lg" id="btnInside">안쪽 보기</button>
+        <button class="btn ghost lg" id="btnRescan">다시 찍기</button>
+      </div>
+      <button class="btn primary xl" id="btnGo" disabled>이 차로 달리기</button>
+      <p class="start-msg" id="goMsg" aria-live="polite"></p>
+    </aside>
+  </main>
 </div>
 
 <!-- ───── AR 화면 위 층 ───── -->
